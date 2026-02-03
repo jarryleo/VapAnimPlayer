@@ -239,7 +239,7 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                                     alignHeight = sliceHeight
                                 }
                             } catch (t: Throwable) {
-                                ALog.e(TAG, "$t", t)
+                                //ALog.e(TAG, "$t", t)
                             }
                         }
                         ALog.i(TAG, "decoder output format changed: $outputFormat")

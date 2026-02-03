@@ -43,7 +43,6 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 
 open class VapAnimView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
@@ -65,12 +64,6 @@ open class VapAnimView @JvmOverloads constructor(
     private var afterStopRunnable: Runnable? = null
     private var onStartRenderCallback: (() -> Unit)? = null
 
-    //是否正处于强制播放流程，避免重复播放导致状态失败
-    private var isForcePlayRunner = AtomicBoolean(false)
-
-    //防止状态错误导致后续无法播放
-    private var lastForcePlayTime = 0L
-
     // 代理监听
     private val animProxyListener by lazy {
         object : IAnimListener {
@@ -85,7 +78,6 @@ open class VapAnimView @JvmOverloads constructor(
 
             override fun onVideoStart() {
                 ALog.d(TAG, "onVideoStart isForcePlayRunner = false")
-                isForcePlayRunner.set(false)
                 animListener?.onVideoStart()
             }
 
@@ -93,7 +85,6 @@ open class VapAnimView @JvmOverloads constructor(
                 animListener?.onVideoRender(frameIndex, config)
                 if (onStartRenderCallback != null && frameIndex == 1) {
                     ALog.d(TAG, "onVideoRender isForcePlayRunner = false")
-                    isForcePlayRunner.set(false)
                     onStartRenderCallback?.invoke()
                     onStartRenderCallback = null
                 }
@@ -109,22 +100,20 @@ open class VapAnimView @JvmOverloads constructor(
                     destroy()
                 } else {
                     clearView()
-                    afterStopRunnable?.let {
-                        postDelayed(it, 100)
-                    }
-                    afterStopRunnable = null
                 }
             }
 
             override fun onVideoDestroy() {
                 ALog.d(TAG, "onVideoDestroy isForcePlayRunner = false")
-                isForcePlayRunner.set(false)
                 animListener?.onVideoDestroy()
+                afterStopRunnable?.let {
+                    postDelayed(it, 100)
+                }
+                afterStopRunnable = null
             }
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
                 ALog.d(TAG, "onFailed isForcePlayRunner = false")
-                isForcePlayRunner.set(false)
                 animListener?.onFailed(errorType, errorMsg)
             }
 
@@ -367,17 +356,12 @@ open class VapAnimView @JvmOverloads constructor(
      * 强制播放，如果正在播放，会先停止再播放
      */
     fun startPlayForce(fileContainer: IFileContainer, onStartRenderOnce: () -> Unit = {}) {
-        val now = System.currentTimeMillis()
-        if (isForcePlayRunner.getAndSet(true) && now - lastForcePlayTime < 10_000) {
-            ALog.d(TAG, "startPlayForce isForcePlayRunner = true")
-            return
-        }
-        lastForcePlayTime = now
         if (player.isRunning()) {
             ALog.d(TAG, "startPlayForce called first stopPlay ${this.hashCode()}")
             afterStopRunnable = Runnable {
                 onStartRenderCallback = onStartRenderOnce
                 if (isAttachedToWindow) {
+                    ALog.d(TAG, "afterStopRunnable running startPlay")
                     startPlay(fileContainer)
                 }
             }

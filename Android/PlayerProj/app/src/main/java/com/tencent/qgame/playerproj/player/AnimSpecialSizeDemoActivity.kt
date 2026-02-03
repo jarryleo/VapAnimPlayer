@@ -187,7 +187,7 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
 
 
     private fun initLog() {
-        ALog.isDebug = false
+        ALog.isDebug = true
         ALog.log = object : IALog {
             override fun i(tag: String, msg: String) {
                 Log.i(tag, msg)
