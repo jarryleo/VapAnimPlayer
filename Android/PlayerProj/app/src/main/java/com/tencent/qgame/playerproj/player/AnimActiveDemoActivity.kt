@@ -29,8 +29,9 @@ import androidx.lifecycle.lifecycleScope
 import com.tencent.qgame.animplayer.AnimConfig
 import com.tencent.qgame.animplayer.PointRect
 import com.tencent.qgame.animplayer.RefVec2
-import com.tencent.qgame.animplayer.VapAnimView
+import com.tencent.qgame.animplayer.AnimView
 import com.tencent.qgame.animplayer.inter.IAnimListener
+import com.tencent.qgame.animplayer.load
 import com.tencent.qgame.animplayer.mask.MaskConfig
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
@@ -65,7 +66,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
         getExternalFilesDir(null)?.absolutePath ?: Environment.getExternalStorageDirectory().path
     }
 
-    private var head1Img = true
 
     // 视频信息
     data class VideoInfo(val fileName: String, val md5: String)
@@ -74,7 +74,7 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
 
 
     // 动画View
-    private lateinit var animView: VapAnimView
+    private lateinit var animView: AnimView
     var maskBitmap: Bitmap? = null
 
 
@@ -92,14 +92,7 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         // 文件加载完成后会调用init方法
-        val files = Array(1) {
-            videoInfo.fileName
-        }
-        FileUtil.copyAssetsToStorage(this, dir, files) {
-            uiHandler.post {
-                init()
-            }
-        }
+        init()
     }
 
     private fun init() {
@@ -121,32 +114,8 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
          */
         play(videoInfo)
     }
-
-    private var job: Job? = null
-    private var vapFile: File? = null
     private fun play(videoInfo: VideoInfo) {
-        val f= vapFile
-        if (f != null && f.exists()) {
-            // 播放动画
-            animView.startPlayForce(f)
-            return
-        }
-        if (job?.isActive == true){
-            return
-        }
-        // 播放前强烈建议检查文件的md5是否有改变
-        // 因为下载或文件存储过程中会出现文件损坏，导致无法播放
-        job = lifecycleScope.launch(Dispatchers.IO) {
-            val file = File(dir + "/" + videoInfo.fileName)
-            val md5 = FileUtil.getFileMD5(file)
-            if (videoInfo.md5 == md5) {
-                vapFile = file
-                // 开始播放动画文件
-                animView.startPlayForce(file)
-            } else {
-                Log.e(TAG, "md5 is not match, error md5=$md5")
-            }
-        }
+        animView.load(videoInfo.fileName)
     }
 
     /**
@@ -292,12 +261,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
             zipInflater?.end()
         }
         return maskBitmap
-    }
-
-
-    private fun dp2px(context: Context, dp: Float): Float {
-        val scale = context.resources.displayMetrics.density
-        return dp * scale + 0.5f
     }
 }
 

@@ -1,3 +1,5 @@
+package com.tencent.qgame.animplayer
+
 /*
  * Tencent is pleased to support the open source community by making vap available.
  *
@@ -13,19 +15,17 @@
  * either express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.tencent.qgame.animplayer
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.content.res.AssetManager
 import android.graphics.SurfaceTexture
-import android.os.Build
+import android.media.MediaExtractor
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.TextureView
-import android.view.View
 import android.widget.FrameLayout
-import com.tencent.qgame.animplayer.file.AssetsFileContainer
 import com.tencent.qgame.animplayer.file.FileContainer
 import com.tencent.qgame.animplayer.file.IFileContainer
 import com.tencent.qgame.animplayer.inter.IAnimListener
@@ -37,17 +37,23 @@ import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IScaleType
 import com.tencent.qgame.animplayer.util.ScaleType
 import com.tencent.qgame.animplayer.util.ScaleTypeUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 
-open class AnimView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0):
-    IAnimView,
-    FrameLayout(context, attrs, defStyleAttr),
-    TextureView.SurfaceTextureListener {
+open class AnimView @JvmOverloads constructor(
+    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
+) : IAnimView, FrameLayout(context, attrs, defStyleAttr),
+    TextureView.SurfaceTextureListener, CoroutineScope by MainScope() {
 
     companion object {
-        private const val TAG = "${Constant.TAG}.AnimView"
+        private const val TAG = "AnimView"
     }
-    private lateinit var player: AnimPlayer
+
+    private var player: AnimPlayer
 
     private val uiHandler by lazy { Handler(Looper.getMainLooper()) }
     private var surface: SurfaceTexture? = null
@@ -55,35 +61,59 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
     private var innerTextureView: InnerTextureView? = null
     private var lastFile: IFileContainer? = null
     private val scaleTypeUtil = ScaleTypeUtil()
+    private var afterStopRunnable: Runnable? = null
+    private var onStartRenderCallback: (() -> Unit)? = null
 
     // 代理监听
     private val animProxyListener by lazy {
         object : IAnimListener {
 
             override fun onVideoConfigReady(config: AnimConfig): Boolean {
-                scaleTypeUtil.setVideoSize(config.width, config.height)
+                ALog.d(
+                    TAG, "onVideoConfigReady width = ${config.width}, height = ${config.height}"
+                )
+                updateVideoSize(config.width, config.height)
                 return animListener?.onVideoConfigReady(config) ?: super.onVideoConfigReady(config)
             }
 
             override fun onVideoStart() {
+                ALog.d(TAG, "onVideoStart isForcePlayRunner = false")
                 animListener?.onVideoStart()
             }
 
             override fun onVideoRender(frameIndex: Int, config: AnimConfig?) {
                 animListener?.onVideoRender(frameIndex, config)
+                if (onStartRenderCallback != null && frameIndex == 1) {
+                    ALog.d(TAG, "onVideoRender isForcePlayRunner = false")
+                    onStartRenderCallback?.invoke()
+                    onStartRenderCallback = null
+                }
             }
 
             override fun onVideoComplete() {
-                hide()
                 animListener?.onVideoComplete()
+                ALog.d(
+                    TAG,
+                    "onVideoComplete player.playLoop = ${player.playLoop}, afterStopRunnable = $afterStopRunnable"
+                )
+                if (player.playLoop <= 0) {
+                    destroy()
+                } else {
+                    clearView()
+                }
             }
 
             override fun onVideoDestroy() {
-                hide()
+                ALog.d(TAG, "onVideoDestroy isForcePlayRunner = false")
                 animListener?.onVideoDestroy()
+                afterStopRunnable?.let {
+                    postDelayed(it, 100)
+                }
+                afterStopRunnable = null
             }
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
+                ALog.d(TAG, "onFailed isForcePlayRunner = false")
                 animListener?.onFailed(errorType, errorMsg)
             }
 
@@ -92,32 +122,70 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
 
     // 保证AnimView已经布局完成才加入TextureView
     private var onSizeChangedCalled = false
-    private var needPrepareTextureView = false
     private val prepareTextureViewRunnable = Runnable {
-        removeAllViews()
-        innerTextureView = InnerTextureView(context).apply {
-            player = this@AnimView.player
-            isOpaque = false
-            surfaceTextureListener = this@AnimView
-            layoutParams = scaleTypeUtil.getLayoutParam(this)
+        val lp = scaleTypeUtil.getLayoutParam(this@AnimView)
+        if (innerTextureView == null || innerTextureView?.width != lp.width || innerTextureView?.height != lp.height) {
+            removeAllViews()
+            innerTextureView = InnerTextureView(context).apply {
+                player = this@AnimView.player
+                isOpaque = false
+                surfaceTextureListener = this@AnimView
+                layoutParams = lp
+            }
+            addView(innerTextureView, lp)
+            ALog.d(
+                TAG, "prepareTextureViewRunnable width = ${lp.width}, height = ${lp.height}"
+            )
         }
-        addView(innerTextureView)
     }
 
 
     init {
-        hide()
         player = AnimPlayer(this)
         player.animListener = animProxyListener
     }
 
+    private fun updateVideoSize(width: Int, height: Int) {
+        ui {
+            scaleTypeUtil.setVideoSize(width, height)
+            if (!onSizeChangedCalled) {
+                ALog.d(TAG, "updateVideoSize onSizeChanged not called")
+                return@ui
+            }
+            val textureView = innerTextureView
+            if (textureView == null) {
+                uiHandler.removeCallbacks(prepareTextureViewRunnable)
+                uiHandler.post(prepareTextureViewRunnable)
+                ALog.d(TAG, "updateVideoSize prepareTextureViewRunnable called")
+                return@ui
+            }
+            scaleTypeUtil.getRealSize().let {
+                if (it.first != width || it.second != height) {
+                    textureView.layoutParams = scaleTypeUtil.getLayoutParam(this@AnimView)
+                    ALog.d(TAG, "updateVideoSize width = $width height = $height")
+                }
+            }
+        }
+    }
 
+    private fun clearView() {
+        ui {
+            removeAllViews()
+            innerTextureView?.surfaceTextureListener = null
+            innerTextureView = null
+        }
+    }
+
+    /**
+     * 每次播放都需要调用一次，获取视频尺寸用来设置TextureView的LayoutParams
+     */
     override fun prepareTextureView() {
         if (onSizeChangedCalled) {
+            ALog.d(TAG, "prepareTextureViewRunnable called")
+            uiHandler.removeCallbacks(prepareTextureViewRunnable)
             uiHandler.post(prepareTextureViewRunnable)
         } else {
-            ALog.e(TAG, "onSizeChanged not called")
-            needPrepareTextureView = true
+            ALog.d(TAG, "prepareTextureView onSizeChanged not called")
         }
     }
 
@@ -126,7 +194,7 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        ALog.i(TAG, "onSurfaceTextureSizeChanged $width x $height")
+        ALog.d(TAG, "onSurfaceTextureSizeChanged $width x $height")
         player.onSurfaceTextureSizeChanged(width, height)
     }
 
@@ -134,52 +202,38 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        ALog.i(TAG, "onSurfaceTextureDestroyed")
+        ALog.d(TAG, "onSurfaceTextureDestroyed")
         this.surface = null
         player.onSurfaceTextureDestroyed()
-        uiHandler.post {
-            innerTextureView?.surfaceTextureListener = null
-            innerTextureView = null
-            removeAllViews()
-        }
         return true
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        ALog.i(TAG, "onSurfaceTextureAvailable width=$width height=$height")
+        ALog.d(TAG, "onSurfaceTextureAvailable width=$width height=$height")
         this.surface = surface
         player.onSurfaceTextureAvailable(width, height)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        ALog.i(TAG, "onSizeChanged w=$w, h=$h")
         scaleTypeUtil.setLayoutSize(w, h)
         onSizeChangedCalled = true
         // 需要保证onSizeChanged被调用
-        if (needPrepareTextureView) {
-            needPrepareTextureView = false
+        if (innerTextureView == null) {
             prepareTextureView()
         }
     }
 
     override fun onAttachedToWindow() {
-        ALog.i(TAG, "onAttachedToWindow")
         super.onAttachedToWindow()
         player.isDetachedFromWindow = false
-        // 自动恢复播放
-        if (player.playLoop > 0) {
-            lastFile?.apply {
-                startPlay(this)
-            }
-        }
+        onResume()
     }
 
     override fun onDetachedFromWindow() {
-        ALog.i(TAG, "onDetachedFromWindow")
         super.onDetachedFromWindow()
         player.isDetachedFromWindow = true
-        player.onSurfaceTextureDestroyed()
+        onPause()
     }
 
 
@@ -206,7 +260,7 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
         player.playLoop = playLoop
     }
 
-    override fun supportMask(isSupport : Boolean, isEdgeBlur : Boolean) {
+    override fun supportMask(isSupport: Boolean, isEdgeBlur: Boolean) {
         player.supportMaskBoolean = isSupport
         player.maskEdgeBlurBoolean = isEdgeBlur
     }
@@ -228,11 +282,11 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
     }
 
     override fun setFps(fps: Int) {
-        ALog.i(TAG, "setFps=$fps")
+        ALog.d(TAG, "setFps=$fps")
         player.defaultFps = fps
     }
 
-    override fun setScaleType(type : ScaleType) {
+    override fun setScaleType(type: ScaleType) {
         scaleTypeUtil.currentScaleType = type
     }
 
@@ -244,7 +298,7 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
      * @param isMute true 静音
      */
     override fun setMute(isMute: Boolean) {
-        ALog.e(TAG, "set mute=$isMute")
+        ALog.i(TAG, "set mute=$isMute")
         player.isMute = isMute
     }
 
@@ -253,39 +307,108 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
             val fileContainer = FileContainer(file)
             startPlay(fileContainer)
         } catch (e: Throwable) {
-            animProxyListener.onFailed(Constant.REPORT_ERROR_TYPE_FILE_ERROR, Constant.ERROR_MSG_FILE_ERROR)
+            animProxyListener.onFailed(
+                Constant.REPORT_ERROR_TYPE_FILE_ERROR, Constant.ERROR_MSG_FILE_ERROR
+            )
             animProxyListener.onVideoComplete()
         }
     }
 
     override fun startPlay(assetManager: AssetManager, assetsPath: String) {
         try {
-            val fileContainer = AssetsFileContainer(assetManager, assetsPath)
+            val fileContainer = CustomAssetsFileContainer(assetManager, assetsPath)
             startPlay(fileContainer)
         } catch (e: Throwable) {
-            animProxyListener.onFailed(Constant.REPORT_ERROR_TYPE_FILE_ERROR, Constant.ERROR_MSG_FILE_ERROR)
+            animProxyListener.onFailed(
+                Constant.REPORT_ERROR_TYPE_FILE_ERROR, Constant.ERROR_MSG_FILE_ERROR
+            )
             animProxyListener.onVideoComplete()
         }
     }
 
 
     override fun startPlay(fileContainer: IFileContainer) {
+        if (lastFile != fileContainer) {
+            lastFile?.close() //关闭上一次播放的文件流
+        }
+        lastFile = if (fileContainer is CustomAssetsFileContainer) {
+            fileContainer.copy() //资源文件对象结束播放后不能再次播放bug
+        } else {
+            fileContainer
+        }
         ui {
-            if (visibility != View.VISIBLE) {
+            if (visibility != VISIBLE) {
                 ALog.e(TAG, "AnimView is GONE, can't play")
                 return@ui
             }
             if (!player.isRunning()) {
-                lastFile = fileContainer
-                player.startPlay(fileContainer)
+                post { player.startPlay(fileContainer) }
+                ALog.d(
+                    TAG, "startPlay called $fileContainer ,player = ${player.isSurfaceAvailable}"
+                )
             } else {
-                ALog.e(TAG, "is running can not start")
+                ALog.d(TAG, "is running can not start")
+            }
+        }
+    }
+
+    /**
+     * 强制播放，如果正在播放，会先停止再播放
+     */
+    fun startPlayForce(fileContainer: IFileContainer, onStartRenderOnce: () -> Unit = {}) {
+        if (player.isRunning()) {
+            ALog.d(TAG, "startPlayForce called first stopPlay ${this.hashCode()}")
+            afterStopRunnable = Runnable {
+                onStartRenderCallback = onStartRenderOnce
+                if (isAttachedToWindow) {
+                    ALog.d(TAG, "afterStopRunnable running startPlay")
+                    startPlay(fileContainer)
+                }
+            }
+            stopPlay()
+        } else {
+            ALog.d(TAG, "startPlayForce called ${this.hashCode()}")
+            onStartRenderCallback = onStartRenderOnce
+            startPlay(fileContainer)
+        }
+    }
+
+    /**
+     * 强制播放，如果正在播放，会先停止再播放
+     * @param assetsPath 资源路径
+     * @param onStartRenderOnce 首帧回调，动画真实开始回调，不是初始化完成回调
+     */
+    fun startPlayForce(
+        assetsPath: String, onStartRenderOnce: () -> Unit = {}
+    ) {
+        launch(Dispatchers.IO) {
+            val fileContainer =
+                runCatching { CustomAssetsFileContainer(context.assets, assetsPath) }.getOrNull()
+            if (fileContainer != null) {
+                startPlayForce(fileContainer, onStartRenderOnce)
+            }
+        }
+    }
+
+    /**
+     * 强制播放，如果正在播放，会先停止再播放
+     * @param file 动画文件
+     * @param onStartRenderOnce 首帧回调，动画真实开始回调，不是初始化完成回调
+     */
+    fun startPlayForce(
+        file: File, onStartRenderOnce: () -> Unit = {}
+    ) {
+        launch(Dispatchers.IO) {
+            val fileContainer = runCatching { FileContainer(file) }.getOrNull()
+            if (fileContainer != null) {
+                startPlayForce(fileContainer, onStartRenderOnce)
             }
         }
     }
 
 
     override fun stopPlay() {
+        ALog.d(TAG, "stopPlay called")
         player.stopPlay()
     }
 
@@ -297,15 +420,99 @@ open class AnimView @JvmOverloads constructor(context: Context, attrs: Attribute
         return scaleTypeUtil.getRealSize()
     }
 
-    private fun hide() {
+    private fun destroy() {
+        player.onSurfaceTextureDestroyed()
         lastFile?.close()
-        ui {
-            removeAllViews()
-        }
+        lastFile = null
+        clearView()
     }
 
-    private fun ui(f:()->Unit) {
+    /**
+     * 释放资源
+     */
+    fun release() {
+        player.isDetachedFromWindow = true
+        destroy()
+        uiHandler.removeCallbacksAndMessages(null)
+        cancel("release")
+    }
+
+    private fun ui(f: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) f() else uiHandler.post { f() }
     }
 
+    fun onPause() {
+        //停止播放
+        stopPlay()
+    }
+
+    fun onResume() {
+        // 恢复播放
+        if (player.playLoop > 0) {
+            lastFile?.apply {
+                startPlayForce(this)
+            }
+        }
+    }
+
+    /**
+     * 解决Assets资源暂停重播时候失败问题
+     */
+    class CustomAssetsFileContainer(
+        private val assetManager: AssetManager,
+        private val assetsPath: String
+    ) :
+        IFileContainer {
+
+        companion object {
+            private const val TAG = "${Constant.TAG}.FileContainer"
+        }
+
+        private val assetFd: AssetFileDescriptor = assetManager.openFd(assetsPath)
+        private val assetsInputStream: AssetManager.AssetInputStream =
+            assetManager.open(
+                assetsPath,
+                AssetManager.ACCESS_STREAMING
+            ) as AssetManager.AssetInputStream
+
+        init {
+            ALog.i(TAG, "AssetsFileContainer init")
+        }
+
+        override fun setDataSource(extractor: MediaExtractor) {
+            if (assetFd.declaredLength < 0) {
+                extractor.setDataSource(assetFd.fileDescriptor)
+            } else {
+                extractor.setDataSource(
+                    assetFd.fileDescriptor,
+                    assetFd.startOffset,
+                    assetFd.declaredLength
+                )
+            }
+        }
+
+        override fun startRandomRead() {
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            return assetsInputStream.read(b, off, len)
+        }
+
+        override fun skip(pos: Long) {
+            assetsInputStream.skip(pos)
+        }
+
+        override fun closeRandomRead() {
+            assetsInputStream.close()
+        }
+
+        override fun close() {
+            assetFd.close()
+            assetsInputStream.close()
+        }
+
+        fun copy(): CustomAssetsFileContainer {
+            return CustomAssetsFileContainer(assetManager, assetsPath)
+        }
+    }
 }

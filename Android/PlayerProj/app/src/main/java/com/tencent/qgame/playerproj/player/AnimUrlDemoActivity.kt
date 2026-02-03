@@ -15,16 +15,12 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.content.Context
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.tencent.qgame.animplayer.AnimConfig
 import com.tencent.qgame.animplayer.AnimView
-import com.tencent.qgame.animplayer.Constant
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.load
 import com.tencent.qgame.animplayer.util.ALog
@@ -33,31 +29,23 @@ import com.tencent.qgame.animplayer.util.ScaleType
 import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
 
 /**
- * 播放宽高不是16的倍数的特殊尺寸的动画demo，这里以special_size_750.mp4为例，size = 750 x 814
+ * 网络加载 vap
  */
-class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
+class AnimUrlDemoActivity : AppCompatActivity(), IAnimListener {
 
     companion object {
-        private const val TAG = "AnimSpecialSizeActivity"
+        private const val TAG = "AnimUrlDemoActivity"
     }
 
     private val binding by lazy {
         ActivityAnimSimpleDemoBinding.inflate(layoutInflater)
     }
 
-    // 视频信息
-    data class VideoInfo(val fileName: String, val md5: String)
-
-    // ps：每次修改mp4文件，但文件名不变，记得先卸载app，因为assets同名文件不会进行替换
-    private val videoInfo = VideoInfo("special_size_750.mp4", "2acde1639ad74b8bd843083246902e23")
-
     // 动画View
     private lateinit var animView: AnimView
 
-    private val uiHandler by lazy {
-        Handler(Looper.getMainLooper())
-    }
 
+    private val videoUrl = "https://res.dawalive.com/gift/1767838791158?imageslim"
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -71,10 +59,6 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
         initTestView()
         // 获取动画view
         animView = binding.playerView
-        // 视频左右对齐（rgb左\alpha右）
-        animView.setVideoMode(Constant.VIDEO_MODE_SPLIT_HORIZONTAL_REVERSE)
-        // 兼容老版本视频资源
-        animView.enableVersion1(true)
         // 居中（根据父布局按比例居中并全部显示，默认fitXY）
         animView.setScaleType(ScaleType.FIT_CENTER)
         // 注册动画监听
@@ -83,12 +67,11 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
          * 开始播放主流程
          * ps: 主要流程都是对AnimView的操作，其它比如队列，或改变窗口大小等操作都不是必须的
          */
-        play(videoInfo)
+        play(url = videoUrl)
     }
 
-
-    private fun play(videoInfo: VideoInfo) {
-        animView.load(videoInfo.fileName)
+    private fun play(url: String) {
+        animView.load(url)
     }
 
 
@@ -97,14 +80,6 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
      * @return true 继续播放 false 停止播放
      */
     override fun onVideoConfigReady(config: AnimConfig): Boolean {
-
-        uiHandler.post {
-            val w = dp2px(this, 400f).toInt()
-            val lp = animView.layoutParams
-            lp.width = w
-            lp.height = (w * config.height * 1f / config.width).toInt()
-            animView.layoutParams = lp
-        }
         return true
     }
 
@@ -182,7 +157,7 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
          * 开始播放按钮
          */
         binding.btnPlay.setOnClickListener {
-            play(videoInfo)
+            play(url = videoUrl)
         }
         /**
          * 结束视频按钮
@@ -192,10 +167,5 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
         }
     }
 
-
-    private fun dp2px(context: Context, dp: Float): Float {
-        val scale = context.resources.displayMetrics.density
-        return dp * scale + 0.5f
-    }
 }
 

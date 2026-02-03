@@ -15,33 +15,26 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import com.tencent.qgame.animplayer.AnimConfig
-import com.tencent.qgame.animplayer.VapAnimView
+import com.tencent.qgame.animplayer.AnimView
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.inter.IFetchResource
 import com.tencent.qgame.animplayer.inter.OnResourceClickListener
+import com.tencent.qgame.animplayer.load
 import com.tencent.qgame.animplayer.mix.Resource
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
 import com.tencent.qgame.playerproj.R
 import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import java.io.File
 import java.util.Random
 
 
@@ -72,19 +65,14 @@ class AnimVapxDemoActivity : AppCompatActivity(), IAnimListener {
     private val videoInfo = VideoInfo("vapx.mp4", "f981e0f094ead842ad5ae99f1ffaa1a1")
 
     // 动画View
-    private lateinit var animView: VapAnimView
-
-    private val uiHandler by lazy {
-        Handler(Looper.getMainLooper())
-    }
+    private lateinit var animView: AnimView
 
     private var lastToast: Toast? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-        // 文件加载完成后会调用init方法
-        loadFile()
+        init()
     }
 
     private fun init() {
@@ -167,31 +155,8 @@ class AnimVapxDemoActivity : AppCompatActivity(), IAnimListener {
         play(videoInfo)
     }
 
-    private var job: Job? = null
-    private var vapFile: File? = null
     private fun play(videoInfo: VideoInfo) {
-        val f = vapFile
-        if (f != null && f.exists()) {
-            // 播放动画
-            animView.startPlayForce(f)
-            return
-        }
-        if (job?.isActive == true) {
-            return
-        }
-        // 播放前强烈建议检查文件的md5是否有改变
-        // 因为下载或文件存储过程中会出现文件损坏，导致无法播放
-        job = lifecycleScope.launch(Dispatchers.IO) {
-            val file = File(dir + "/" + videoInfo.fileName)
-            val md5 = FileUtil.getFileMD5(file)
-            if (videoInfo.md5 == md5) {
-                vapFile = file
-                // 开始播放动画文件
-                animView.startPlayForce(file)
-            } else {
-                Log.e(TAG, "md5 is not match, error md5=$md5")
-            }
-        }
+        animView.load(videoInfo.fileName)
     }
 
     /**
@@ -286,21 +251,5 @@ class AnimVapxDemoActivity : AppCompatActivity(), IAnimListener {
         }
     }
 
-    private fun loadFile() {
-        val files = Array(1) {
-            videoInfo.fileName
-        }
-        FileUtil.copyAssetsToStorage(this, dir, files) {
-            uiHandler.post {
-                init()
-            }
-        }
-    }
-
-
-    private fun dp2px(context: Context, dp: Float): Float {
-        val scale = context.resources.displayMetrics.density
-        return dp * scale + 0.5f
-    }
 }
 
