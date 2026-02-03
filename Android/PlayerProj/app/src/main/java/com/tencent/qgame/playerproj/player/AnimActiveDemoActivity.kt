@@ -15,7 +15,6 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -25,17 +24,21 @@ import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import android.view.View
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.tencent.qgame.animplayer.AnimConfig
-import com.tencent.qgame.animplayer.AnimView
 import com.tencent.qgame.animplayer.PointRect
 import com.tencent.qgame.animplayer.RefVec2
+import com.tencent.qgame.animplayer.VapAnimView
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.mask.MaskConfig
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
-import com.tencent.qgame.playerproj.R
-import kotlinx.android.synthetic.main.activity_anim_simple_demo.*
+import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.zip.Inflater
@@ -47,10 +50,14 @@ import kotlin.math.sqrt
  * VAPX demo (融合特效Demo)
  * 必须使用组件里提供的工具才能生成VAPX动画
  */
-class AnimActiveDemoActivity : Activity(), IAnimListener {
+class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
 
     companion object {
         private const val TAG = "AnimSimpleDemoActivity"
+    }
+
+    private val binding by lazy {
+        ActivityAnimSimpleDemoBinding.inflate(layoutInflater)
     }
 
     private val dir by lazy {
@@ -67,7 +74,7 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
 
 
     // 动画View
-    private lateinit var animView: AnimView
+    private lateinit var animView: VapAnimView
     var maskBitmap: Bitmap? = null
 
 
@@ -83,7 +90,7 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_anim_simple_demo)
+        setContentView(binding.root)
         // 文件加载完成后会调用init方法
         val files = Array(1) {
             videoInfo.fileName
@@ -101,7 +108,7 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
         // 初始化调试开关
         initTestView()
         // 获取动画view
-        animView = playerView
+        animView = binding.playerView
         // 居中（根据父布局按比例居中并全部显示s）
         animView.setScaleType(ScaleType.FIT_CENTER)
         // 启动过滤遮罩s
@@ -115,20 +122,31 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
         play(videoInfo)
     }
 
-
+    private var job: Job? = null
+    private var vapFile: File? = null
     private fun play(videoInfo: VideoInfo) {
+        val f= vapFile
+        if (f != null && f.exists()) {
+            // 播放动画
+            animView.startPlayForce(f)
+            return
+        }
+        if (job?.isActive == true){
+            return
+        }
         // 播放前强烈建议检查文件的md5是否有改变
         // 因为下载或文件存储过程中会出现文件损坏，导致无法播放
-        Thread {
+        job = lifecycleScope.launch(Dispatchers.IO) {
             val file = File(dir + "/" + videoInfo.fileName)
             val md5 = FileUtil.getFileMD5(file)
             if (videoInfo.md5 == md5) {
+                vapFile = file
                 // 开始播放动画文件
-                animView.startPlay(file)
+                animView.startPlayForce(file)
             } else {
                 Log.e(TAG, "md5 is not match, error md5=$md5")
             }
-        }.start()
+        }
     }
 
     /**
@@ -208,7 +226,8 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
     }
 
     private fun updateTestMask() {
-        val bitmap = handleDepthMaskData("eNrt1cFtxSAMBuAgDhwZIZuU0WCTjlJGyQgckYpwn57U6kGInYQQkPq4foeAHf+epvf5P+eDcDAoM1hQ5+BQlxBQVxBR1wD49XFnDzfo9QEs4VgBxA53aHlo9xU+Pzw0dPXwWOmAt7+9m/MOe9x2c/b0pbO7bs53ue/sobPHzg6juxncbS8XgAfAIO7OurzGfWcPZ32+x+NZV2M49PatgNAX+VYAAO7y1xe0vZv++/mNAeOAuyD873obAzQTrnZ7wJ9X7fGUw2UOLZzd6KaBv77PDu5LpbvG7is9VHps7IDG2zkXd7q53uURt1h8l11X+iuXBqS36yPu3o56IWBUpeuRPKDrreSccHHAvwj/LASovNEl6YC6aO8Ga1/BBeEz4Spze9A14cnfw+s8Us7WAXmpTytn6XCsAihzTbo/5jx1RXpAfSYdKDeYy7yBPA03mRd47W67Pk/3NS7yhLvZ+SphV+4JdzXOhnOdLj/al9y/U7d5vk2vro/6DEZhLlNX6/WYeGF9G1H2H2Jpic4=")
+        val bitmap =
+            handleDepthMaskData("eNrt1cFtxSAMBuAgDhwZIZuU0WCTjlJGyQgckYpwn57U6kGInYQQkPq4foeAHf+epvf5P+eDcDAoM1hQ5+BQlxBQVxBR1wD49XFnDzfo9QEs4VgBxA53aHlo9xU+Pzw0dPXwWOmAt7+9m/MOe9x2c/b0pbO7bs53ue/sobPHzg6juxncbS8XgAfAIO7OurzGfWcPZ32+x+NZV2M49PatgNAX+VYAAO7y1xe0vZv++/mNAeOAuyD873obAzQTrnZ7wJ9X7fGUw2UOLZzd6KaBv77PDu5LpbvG7is9VHps7IDG2zkXd7q53uURt1h8l11X+iuXBqS36yPu3o56IWBUpeuRPKDrreSccHHAvwj/LASovNEl6YC6aO8Ga1/BBeEz4Spze9A14cnfw+s8Us7WAXmpTytn6XCsAihzTbo/5jx1RXpAfSYdKDeYy7yBPA03mRd47W67Pk/3NS7yhLvZ+SphV+4JdzXOhnOdLj/al9y/U7d5vk2vro/6DEZhLlNX6/WYeGF9G1H2H2Jpic4=")
         val maskConfig = MaskConfig()
         maskConfig.safeSetMaskBitmapAndReleasePre(bitmap)
         maskConfig.maskTexPair = Pair(PointRect(0, 0, 1080, 607), RefVec2(1080, 607))
@@ -218,18 +237,18 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
 
 
     private fun initTestView() {
-        btnLayout.visibility = View.VISIBLE
+        binding.btnLayout.visibility = View.VISIBLE
         /**
          * 开始播放按钮
          */
-        btnPlay.setOnClickListener {
+        binding.btnPlay.setOnClickListener {
             updateTestMask()
             play(videoInfo)
         }
         /**
          * 结束视频按钮
          */
-        btnStop.setOnClickListener {
+        binding.btnStop.setOnClickListener {
             animView.stopPlay()
         }
     }
@@ -237,31 +256,34 @@ class AnimActiveDemoActivity : Activity(), IAnimListener {
     /**
      * 将Base64的bitmap转换为真正的bitmap
      */
-    private fun handleDepthMaskData(compressedBase64Data: String) : Bitmap? {
-        var zipInflater : Inflater?= null
+    private fun handleDepthMaskData(compressedBase64Data: String): Bitmap? {
+        var zipInflater: Inflater? = null
         try {
             val base64Bytes = Base64.decode(compressedBase64Data, Base64.DEFAULT)
             zipInflater = Inflater()
             zipInflater.setInput(base64Bytes, 0, base64Bytes.size)
             val zlibBytes = ByteArray(128 * 128)
             val zlibByteLength = zipInflater.inflate(zlibBytes)
-            if(zlibByteLength > 0) {
+            if (zlibByteLength > 0) {
                 val resultBytes = ByteArray(zlibByteLength * 8 * 4)
                 for (outLoop in 0 until zlibByteLength) { //位展开操作
-                    for(inLoop in 0 until 8) {
+                    for (inLoop in 0 until 8) {
                         if (zlibBytes[outLoop] and (1 shl inLoop).toByte() == 0.toByte()) {
-                            resultBytes[outLoop * 8 * 4 + (7- inLoop) * 4] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7- inLoop) * 4 + 1] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7- inLoop) * 4 + 2] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7- inLoop) * 4 + 3] = 255.toByte()
+                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4] = 255.toByte()
+                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 1] = 255.toByte()
+                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 2] = 255.toByte()
+                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 3] = 255.toByte()
                         }
                     }
                 }
                 val width = sqrt((zlibByteLength * 8).toDouble())
-                if(maskBitmap == null || maskBitmap?.isRecycled != false || (maskBitmap?.width ?: 0) < width) {
-                    maskBitmap = Bitmap.createBitmap(width.toInt(), width.toInt(), Bitmap.Config.ARGB_8888)
+                if (maskBitmap == null || maskBitmap?.isRecycled != false || (maskBitmap?.width
+                        ?: 0) < width
+                ) {
+                    maskBitmap =
+                        Bitmap.createBitmap(width.toInt(), width.toInt(), Bitmap.Config.ARGB_8888)
                 }
-                maskBitmap?.copyPixelsFromBuffer( ByteBuffer.wrap(resultBytes))
+                maskBitmap?.copyPixelsFromBuffer(ByteBuffer.wrap(resultBytes))
 
             }
         } catch (e: Exception) {

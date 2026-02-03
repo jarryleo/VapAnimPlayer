@@ -28,7 +28,7 @@
     </LinearLayout>
 
     
-    <com.tencent.qgame.animplayer.AnimView
+    <com.tencent.qgame.animplayer.VapAnimView
         android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

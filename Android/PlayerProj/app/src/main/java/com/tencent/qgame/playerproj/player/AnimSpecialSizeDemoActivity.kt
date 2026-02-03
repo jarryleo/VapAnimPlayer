@@ -15,7 +15,6 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.app.Activity
 import android.content.Context
 import android.os.Bundle
 import android.os.Environment
@@ -23,39 +22,46 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.tencent.qgame.animplayer.AnimConfig
-import com.tencent.qgame.animplayer.AnimView
 import com.tencent.qgame.animplayer.Constant
+import com.tencent.qgame.animplayer.VapAnimView
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
-import com.tencent.qgame.playerproj.R
-import kotlinx.android.synthetic.main.activity_anim_simple_demo.*
+import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
  * 播放宽高不是16的倍数的特殊尺寸的动画demo，这里以special_size_750.mp4为例，size = 750 x 814
  */
-class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
+class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
 
     companion object {
         private const val TAG = "AnimSpecialSizeActivity"
     }
 
+    private val binding by lazy {
+        ActivityAnimSimpleDemoBinding.inflate(layoutInflater)
+    }
     private val dir by lazy {
         // 存放在sdcard应用缓存文件中
         getExternalFilesDir(null)?.absolutePath ?: Environment.getExternalStorageDirectory().path
     }
 
     // 视频信息
-    data class VideoInfo(val fileName: String,val md5:String)
+    data class VideoInfo(val fileName: String, val md5: String)
 
     // ps：每次修改mp4文件，但文件名不变，记得先卸载app，因为assets同名文件不会进行替换
     private val videoInfo = VideoInfo("special_size_750.mp4", "2acde1639ad74b8bd843083246902e23")
 
     // 动画View
-    private lateinit var animView: AnimView
+    private lateinit var animView: VapAnimView
 
     private val uiHandler by lazy {
         Handler(Looper.getMainLooper())
@@ -63,7 +69,7 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_anim_simple_demo)
+        setContentView(binding.root)
         // 文件加载完成后会调用init方法
         loadFile()
     }
@@ -74,7 +80,7 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
         // 初始化调试开关
         initTestView()
         // 获取动画view
-        animView = playerView
+        animView = binding.playerView
         // 视频左右对齐（rgb左\alpha右）
         animView.setVideoMode(Constant.VIDEO_MODE_SPLIT_HORIZONTAL_REVERSE)
         // 兼容老版本视频资源
@@ -90,20 +96,31 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
         play(videoInfo)
     }
 
-
+    private var job: Job? = null
+    private var vapFile: File? = null
     private fun play(videoInfo: VideoInfo) {
+        val f= vapFile
+        if (f != null && f.exists()) {
+            // 播放动画
+            animView.startPlayForce(f)
+            return
+        }
+        if (job?.isActive == true){
+            return
+        }
         // 播放前强烈建议检查文件的md5是否有改变
         // 因为下载或文件存储过程中会出现文件损坏，导致无法播放
-        Thread {
+        job = lifecycleScope.launch(Dispatchers.IO) {
             val file = File(dir + "/" + videoInfo.fileName)
             val md5 = FileUtil.getFileMD5(file)
             if (videoInfo.md5 == md5) {
+                vapFile = file
                 // 开始播放动画文件
-                animView.startPlay(file)
+                animView.startPlayForce(file)
             } else {
                 Log.e(TAG, "md5 is not match, error md5=$md5")
             }
-        }.start()
+        }
     }
 
 
@@ -114,10 +131,10 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
     override fun onVideoConfigReady(config: AnimConfig): Boolean {
 
         uiHandler.post {
-            val w = dp2px(this,400f).toInt()
+            val w = dp2px(this, 400f).toInt()
             val lp = animView.layoutParams
             lp.width = w
-            lp.height = (w * config.height *1f / config.width).toInt()
+            lp.height = (w * config.height * 1f / config.width).toInt()
             animView.layoutParams = lp
         }
         return true
@@ -162,7 +179,6 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
     }
 
 
-
     override fun onPause() {
         super.onPause()
         // 页面切换是停止播放
@@ -193,17 +209,17 @@ class AnimSpecialSizeDemoActivity : Activity(), IAnimListener {
 
 
     private fun initTestView() {
-        btnLayout.visibility = View.VISIBLE
+        binding.btnLayout.visibility = View.VISIBLE
         /**
          * 开始播放按钮
          */
-        btnPlay.setOnClickListener {
+        binding.btnPlay.setOnClickListener {
             play(videoInfo)
         }
         /**
          * 结束视频按钮
          */
-        btnStop.setOnClickListener {
+        binding.btnStop.setOnClickListener {
             animView.stopPlay()
         }
     }

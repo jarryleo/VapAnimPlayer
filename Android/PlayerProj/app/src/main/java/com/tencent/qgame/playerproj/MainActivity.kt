@@ -18,29 +18,58 @@ package com.tencent.qgame.playerproj
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+import com.tencent.qgame.animplayer.util.ALog
+import com.tencent.qgame.animplayer.util.IALog
+import com.tencent.qgame.playerproj.databinding.ActivityMainBinding
 import com.tencent.qgame.playerproj.player.AnimActiveDemoActivity
 import com.tencent.qgame.playerproj.player.AnimSimpleDemoActivity
 import com.tencent.qgame.playerproj.player.AnimSpecialSizeDemoActivity
 import com.tencent.qgame.playerproj.player.AnimVapxDemoActivity
-import kotlinx.android.synthetic.main.activity_main.*
 
 
-class MainActivity : Activity(){
+class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        btn1.setOnClickListener {
-            startActivity(Intent(this, AnimSimpleDemoActivity::class.java))
+        val activityMainBinding = ActivityMainBinding.inflate(layoutInflater)
+        activityMainBinding.apply {
+            setContentView(root)
+            val context = this@MainActivity
+            btn1.setOnClickListener {
+                startActivity(Intent(context, AnimSimpleDemoActivity::class.java))
+            }
+            btn2.setOnClickListener {
+                startActivity(Intent(context, AnimVapxDemoActivity::class.java))
+            }
+            btn3.setOnClickListener {
+                startActivity(Intent(context, AnimActiveDemoActivity::class.java))
+            }
+            btn4.setOnClickListener {
+                startActivity(Intent(context, AnimSpecialSizeDemoActivity::class.java))
+            }
         }
-        btn2.setOnClickListener {
-            startActivity(Intent(this, AnimVapxDemoActivity::class.java))
-        }
-        btn3.setOnClickListener {
-            startActivity(Intent(this, AnimActiveDemoActivity::class.java))
-        }
-        btn4.setOnClickListener {
-            startActivity(Intent(this, AnimSpecialSizeDemoActivity::class.java))
+        initLog()
+    }
+
+    private fun initLog() {
+        ALog.isDebug = true
+        ALog.log = object : IALog {
+            override fun i(tag: String, msg: String) {
+                Log.i(tag, msg)
+            }
+
+            override fun d(tag: String, msg: String) {
+                Log.d(tag, msg)
+            }
+
+            override fun e(tag: String, msg: String) {
+                Log.e(tag, msg)
+            }
+
+            override fun e(tag: String, msg: String, tr: Throwable) {
+                Log.e(tag, msg, tr)
+            }
         }
     }
 

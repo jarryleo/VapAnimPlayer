@@ -15,7 +15,6 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.app.Activity
 import android.content.Context
 import android.os.Bundle
 import android.os.Environment
@@ -23,23 +22,31 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.tencent.qgame.animplayer.AnimConfig
-import com.tencent.qgame.animplayer.AnimView
+import com.tencent.qgame.animplayer.VapAnimView
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
-import com.tencent.qgame.playerproj.R
-import kotlinx.android.synthetic.main.activity_anim_simple_demo.*
+import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
  * 简单使用demo
  */
-class AnimSimpleDemoActivity : Activity(), IAnimListener {
+class AnimSimpleDemoActivity : AppCompatActivity(), IAnimListener {
 
     companion object {
         private const val TAG = "AnimSimpleDemoActivity"
+    }
+
+    private val binding by lazy {
+        ActivityAnimSimpleDemoBinding.inflate(layoutInflater)
     }
 
     private val dir by lazy {
@@ -48,13 +55,13 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
     }
 
     // 视频信息
-    data class VideoInfo(val fileName: String,val md5:String)
+    data class VideoInfo(val fileName: String, val md5: String)
 
     // ps：每次修改mp4文件，但文件名不变，记得先卸载app，因为assets同名文件不会进行替换
     private val videoInfo = VideoInfo("demo.mp4", "3132824326bb07a1143739863e1e5762")
 
     // 动画View
-    private lateinit var animView: AnimView
+    private lateinit var animView: VapAnimView
 
     private val uiHandler by lazy {
         Handler(Looper.getMainLooper())
@@ -62,7 +69,7 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_anim_simple_demo)
+        setContentView(binding.root)
         // 文件加载完成后会调用init方法
         loadFile()
     }
@@ -73,7 +80,7 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
         // 初始化调试开关
         initTestView()
         // 获取动画view
-        animView = playerView
+        animView = binding.playerView
         // 居中（根据父布局按比例居中并全部显示，默认fitXY）
         animView.setScaleType(ScaleType.FIT_CENTER)
         // 注册动画监听
@@ -85,20 +92,31 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
         play(videoInfo)
     }
 
-
+    private var job: Job? = null
+    private var vapFile: File? = null
     private fun play(videoInfo: VideoInfo) {
+        val f = vapFile
+        if (f != null && f.exists()) {
+            // 播放动画
+            animView.startPlayForce(f)
+            return
+        }
+        if (job?.isActive == true) {
+            return
+        }
         // 播放前强烈建议检查文件的md5是否有改变
         // 因为下载或文件存储过程中会出现文件损坏，导致无法播放
-        Thread {
+        job = lifecycleScope.launch(Dispatchers.IO) {
             val file = File(dir + "/" + videoInfo.fileName)
             val md5 = FileUtil.getFileMD5(file)
             if (videoInfo.md5 == md5) {
+                vapFile = file
                 // 开始播放动画文件
-                animView.startPlay(file)
+                animView.startPlayForce(file)
             } else {
                 Log.e(TAG, "md5 is not match, error md5=$md5")
             }
-        }.start()
+        }
     }
 
 
@@ -149,7 +167,6 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
     }
 
 
-
     override fun onPause() {
         super.onPause()
         // 页面切换是停止播放
@@ -180,17 +197,17 @@ class AnimSimpleDemoActivity : Activity(), IAnimListener {
 
 
     private fun initTestView() {
-        btnLayout.visibility = View.VISIBLE
+        binding.btnLayout.visibility = View.VISIBLE
         /**
          * 开始播放按钮
          */
-        btnPlay.setOnClickListener {
+        binding.btnPlay.setOnClickListener {
             play(videoInfo)
         }
         /**
          * 结束视频按钮
          */
-        btnStop.setOnClickListener {
+        binding.btnStop.setOnClickListener {
             animView.stopPlay()
         }
     }
