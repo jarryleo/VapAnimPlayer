@@ -31,7 +31,7 @@ data class DownloadStatus(
     val state: DownloadState = DownloadState.QUEUED,
     val headers: Map<String, String> = emptyMap(),
     val file: File? = null,
-    val exception: DownloadException? = null,
+    val exception: Exception? = null,
 ) {
     fun isSuccessful() = state == DownloadState.COMPLETED
     fun isFailed() = state == DownloadState.FAILED
@@ -148,6 +148,7 @@ class FileDownloadManager(
             FileOutputStream(shadow, false).use { output ->
                 val buffer = ByteArray(8192)
                 var bytesReceived = 0L
+                var lastProgress = 0
                 responseBody.byteStream().use { input ->
                     while (true) {
                         // 检查是否被取消
@@ -165,12 +166,16 @@ class FileDownloadManager(
                             ((downloadedBytes * 100) / totalBytes).toInt()
                         } else 0
 
-                        statusFlow.value = DownloadStatus(
-                            progress = progress,
-                            totalBytes = totalBytes,
-                            downloadedBytes = downloadedBytes,
-                            state = DownloadState.DOWNLOADING
-                        )
+                        if (progress != lastProgress) {
+                            lastProgress = progress
+                            statusFlow.value = DownloadStatus(
+                                progress = progress,
+                                totalBytes = totalBytes,
+                                downloadedBytes = downloadedBytes,
+                                state = DownloadState.DOWNLOADING,
+                                url = url,
+                            )
+                        }
                     }
                 }
             }
@@ -181,7 +186,9 @@ class FileDownloadManager(
                 progress = 100,
                 totalBytes = totalBytes,
                 downloadedBytes = downloadedBytes,
-                state = DownloadState.COMPLETED
+                state = DownloadState.COMPLETED,
+                file = destination,
+                url = url,
             )
 
 
@@ -190,7 +197,8 @@ class FileDownloadManager(
             if (e is CancellationException) {
                 statusFlow.value = statusFlow.value.copy(state = DownloadState.CANCELLED)
             } else {
-                statusFlow.value = statusFlow.value.copy(state = DownloadState.FAILED)
+                statusFlow.value =
+                    statusFlow.value.copy(state = DownloadState.FAILED, exception = e)
             }
         } finally {
             call?.cancel()

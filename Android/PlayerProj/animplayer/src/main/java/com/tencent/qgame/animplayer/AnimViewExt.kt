@@ -1,9 +1,12 @@
 package com.tencent.qgame.animplayer
 
 import com.tencent.qgame.animplayer.cache.VapFileCache
+import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.SourceUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -30,16 +33,17 @@ fun AnimView.load(data: Any?, onStartRenderOnce: () -> Unit = {}) {
     }
     val isUrl = SourceUtil.isUrl(data)
     if (isUrl) {
-        //读取缓存文件
-        val cacheKey = VapFileCache.buildCacheKey(data)
-        val cacheFile = VapFileCache.buildCacheFile(cacheKey)
-        if (cacheFile.exists()) {
-            startPlayForce(cacheFile, onStartRenderOnce)
-            return
-        }
         //下载文件并缓存
         launch(Dispatchers.IO) {
+            //读取缓存文件
+            val cacheKey = VapFileCache.buildCacheKey(data)
+            val cacheFile = VapFileCache.buildCacheFile(cacheKey, context).first()
+            if (cacheFile.exists()) {
+                startPlayForce(cacheFile, onStartRenderOnce)
+                return@launch
+            }
             VapManager.downLoad(data, cacheFile).collectLatest {
+                ALog.d("AnimView", "load url: $data, state = $it")
                 if (it.isSuccessful()) {
                     it.file?.let { file ->
                         startPlayForce(file, onStartRenderOnce)

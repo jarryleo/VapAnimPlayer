@@ -94,7 +94,7 @@ open class AnimView @JvmOverloads constructor(
                 animListener?.onVideoComplete()
                 ALog.d(
                     TAG,
-                    "onVideoComplete player.playLoop = ${player.playLoop}, afterStopRunnable = $afterStopRunnable"
+                    "onVideoComplete player.playLoop = ${player.playLoop}"
                 )
                 if (player.playLoop <= 0) {
                     destroy()
@@ -104,11 +104,12 @@ open class AnimView @JvmOverloads constructor(
             }
 
             override fun onVideoDestroy() {
-                ALog.d(TAG, "onVideoDestroy isForcePlayRunner = false")
+                ALog.d(
+                    TAG,
+                    "onVideoDestroy isForcePlayRunner = false, afterStopRunnable = $afterStopRunnable"
+                )
                 animListener?.onVideoDestroy()
-                afterStopRunnable?.let {
-                    postDelayed(it, 100)
-                }
+                afterStopRunnable?.run()
                 afterStopRunnable = null
             }
 
@@ -148,6 +149,7 @@ open class AnimView @JvmOverloads constructor(
     private fun updateVideoSize(width: Int, height: Int) {
         ui {
             scaleTypeUtil.setVideoSize(width, height)
+            ALog.d(TAG, "updateVideoSize scaleTypeUtil.setVideoSize($width, $height)")
             if (!onSizeChangedCalled) {
                 ALog.d(TAG, "updateVideoSize onSizeChanged not called")
                 return@ui
@@ -218,10 +220,6 @@ open class AnimView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         scaleTypeUtil.setLayoutSize(w, h)
         onSizeChangedCalled = true
-        // 需要保证onSizeChanged被调用
-        if (innerTextureView == null) {
-            prepareTextureView()
-        }
     }
 
     override fun onAttachedToWindow() {
@@ -363,6 +361,8 @@ open class AnimView @JvmOverloads constructor(
                 if (isAttachedToWindow) {
                     ALog.d(TAG, "afterStopRunnable running startPlay")
                     startPlay(fileContainer)
+                } else {
+                    ALog.d(TAG, "afterStopRunnable isAttachedToWindow = false")
                 }
             }
             stopPlay()

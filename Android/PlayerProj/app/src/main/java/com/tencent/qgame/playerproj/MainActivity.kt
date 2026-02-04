@@ -19,6 +19,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import com.tencent.qgame.animplayer.VapManager
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.playerproj.databinding.ActivityMainBinding
@@ -52,7 +53,11 @@ class MainActivity : Activity() {
             btn5.setOnClickListener {
                 startActivity(Intent(context, AnimUrlDemoActivity::class.java))
             }
+            btn6.setOnClickListener {
+                VapManager.clearCache()
+            }
         }
+        //VapManager.init(this)
         initLog()
     }
 

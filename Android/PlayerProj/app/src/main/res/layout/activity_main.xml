@@ -43,6 +43,12 @@
             android:layout_height="wrap_content"
             android:text="网络加载Vap" />
 
+        <Button
+            android:id="@+id/btn6"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="清除下载缓存" />
+
     </LinearLayout>
 
 </FrameLayout>

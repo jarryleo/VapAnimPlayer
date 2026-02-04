@@ -5,6 +5,10 @@ import com.tencent.qgame.animplayer.util.ALog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.net.URL
@@ -28,11 +32,12 @@ object VapFileCache : CoroutineScope by MainScope() {
         }
 
 
-    internal fun init(context: Context) {
+    internal fun init(context: Context, onInitComplete: () -> Unit = {}) {
         if (isInitialized()) return
         launch(Dispatchers.IO) {
-            cacheDir = "${context.cacheDir.absolutePath}/svga/"
+            cacheDir = "${context.cacheDir.absolutePath}/vap/"
             File(cacheDir).takeIf { !it.exists() }?.mkdirs()
+            onInitComplete.invoke()
         }
     }
 
@@ -87,11 +92,18 @@ object VapFileCache : CoroutineScope by MainScope() {
 
     internal fun buildCacheKey(url: URL): String = buildCacheKey(url.toString())
 
-    internal fun buildCacheFile(cacheKey: String, context: Context? = null): File {
-        if (cacheDir.isEmpty() && context != null) {
-            init(context)
+    internal fun buildCacheFile(cacheKey: String, context: Context): Flow<File> {
+        return callbackFlow {
+            if (cacheDir.isEmpty()) {
+                init(context) {
+                    trySend(File("$cacheDir$cacheKey.mp4"))
+                }
+            } else {
+                trySend(File("$cacheDir$cacheKey.mp4"))
+            }
+            awaitClose {
+                cancel()
+            }
         }
-        return File("$cacheDir$cacheKey.mp4")
     }
-
 }
