@@ -53,8 +53,6 @@ open class AnimView @JvmOverloads constructor(
         private const val TAG = "AnimView"
     }
 
-    private var player: AnimPlayer
-
     private val uiHandler by lazy { Handler(Looper.getMainLooper()) }
     private var surface: SurfaceTexture? = null
     private var animListener: IAnimListener? = null
@@ -63,6 +61,12 @@ open class AnimView @JvmOverloads constructor(
     private val scaleTypeUtil = ScaleTypeUtil()
     private var afterStopRunnable: Runnable? = null
     private var onStartRenderCallback: (() -> Unit)? = null
+
+    private val player: AnimPlayer by lazy {
+        AnimPlayer(this).apply {
+            animListener = animProxyListener
+        }
+    }
 
     // 代理监听
     private val animProxyListener by lazy {
@@ -114,7 +118,10 @@ open class AnimView @JvmOverloads constructor(
             }
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
-                ALog.d(TAG, "onFailed isForcePlayRunner = false, errorType = $errorType, errorMsg = $errorMsg")
+                ALog.d(
+                    TAG,
+                    "onFailed isForcePlayRunner = false, errorType = $errorType, errorMsg = $errorMsg"
+                )
                 animListener?.onFailed(errorType, errorMsg)
             }
 
@@ -138,12 +145,6 @@ open class AnimView @JvmOverloads constructor(
                 TAG, "prepareTextureViewRunnable width = ${lp.width}, height = ${lp.height}"
             )
         }
-    }
-
-
-    init {
-        player = AnimPlayer(this)
-        player.animListener = animProxyListener
     }
 
     private fun updateVideoSize(width: Int, height: Int) {
