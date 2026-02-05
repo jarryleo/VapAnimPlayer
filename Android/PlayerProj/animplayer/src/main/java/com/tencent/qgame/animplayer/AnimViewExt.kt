@@ -22,7 +22,7 @@ class DynamicResource {
     internal val textMap = mutableMapOf<String, String>()
 
     /**
-     * 设置动态图片,可以是bitmap，文件，url，assert
+     * 设置动态图片,可以是bitmap，文件，url，assert, res
      */
     fun setImage(tag: String, image: Any) {
         imageMap[tag] = image

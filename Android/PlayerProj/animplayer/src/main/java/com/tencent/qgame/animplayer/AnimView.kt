@@ -114,7 +114,7 @@ open class AnimView @JvmOverloads constructor(
             }
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
-                ALog.d(TAG, "onFailed isForcePlayRunner = false")
+                ALog.d(TAG, "onFailed isForcePlayRunner = false, errorType = $errorType, errorMsg = $errorMsg")
                 animListener?.onFailed(errorType, errorMsg)
             }
 

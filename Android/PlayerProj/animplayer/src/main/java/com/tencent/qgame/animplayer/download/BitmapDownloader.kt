@@ -35,12 +35,20 @@ object BitmapDownloader {
         // 从内存缓存中获取
         val cacheData = BitmapCache.INSTANCE.getData(key)
         if (cacheData != null) {
+            ALog.d(
+                "BitmapDownloader",
+                "memory cache hit, bitmap = $cacheData, reqWidth = $reqWidth, reqHeight = $reqHeight"
+            )
             return cacheData
         }
         // 从磁盘缓存中获取
         val diskData = getBitmapFromDisk(context, key, reqWidth, reqHeight)
         if (diskData != null) {
             BitmapCache.INSTANCE.putData(key, diskData)
+            ALog.d(
+                "BitmapDownloader",
+                "disk cache hit, bitmap = $cacheData, reqWidth = $reqWidth, reqHeight = $reqHeight"
+            )
             return diskData
         }
         if (downLoadQueue.contains(url)) {

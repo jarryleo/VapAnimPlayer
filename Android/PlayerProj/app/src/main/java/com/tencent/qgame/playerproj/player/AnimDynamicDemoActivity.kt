@@ -26,6 +26,7 @@ import com.tencent.qgame.animplayer.load
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
+import com.tencent.qgame.playerproj.R
 import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
 
 
@@ -78,10 +79,12 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
     }
 
     private fun play(videoInfo: VideoInfo) {
+        val url = videoInfo.fileName
         animView.load(
-            data = videoInfo.fileName,
+            data = url,
             dynamic = {
-                setImage("avatar1", "https://picsum.photos/300/300?random=1")
+                setImage("title", R.drawable.icon)
+                setImage("avatar1", "head.png")
                 setImage("avatar2", "https://picsum.photos/300/300?random=2")
                 setText("nick1", "nick1")
                 setText("nick2", "nick2")
@@ -127,13 +130,6 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
      */
     override fun onFailed(errorType: Int, errorMsg: String?) {
         Log.i(TAG, "onFailed errorType=$errorType errorMsg=$errorMsg")
-    }
-
-
-    override fun onPause() {
-        super.onPause()
-        // 页面切换是停止播放
-        animView.stopPlay()
     }
 
 
