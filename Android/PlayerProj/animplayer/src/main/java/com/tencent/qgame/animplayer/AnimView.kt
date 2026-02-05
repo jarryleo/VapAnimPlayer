@@ -469,18 +469,34 @@ open class AnimView @JvmOverloads constructor(
             private const val TAG = "${Constant.TAG}.FileContainer"
         }
 
-        private val assetFd: AssetFileDescriptor = assetManager.openFd(assetsPath)
-        private val assetsInputStream: AssetManager.AssetInputStream =
-            assetManager.open(
-                assetsPath,
-                AssetManager.ACCESS_STREAMING
-            ) as AssetManager.AssetInputStream
+        private lateinit var assetFd: AssetFileDescriptor
+        private lateinit var assetsInputStream: AssetManager.AssetInputStream
 
         init {
             ALog.i(TAG, "AssetsFileContainer init")
+            makeFd()
+        }
+
+        private fun makeFd() {
+            assetFd = assetManager.openFd(assetsPath)
+            assetsInputStream = assetManager.open(
+                assetsPath,
+                AssetManager.ACCESS_STREAMING
+            ) as AssetManager.AssetInputStream
         }
 
         override fun setDataSource(extractor: MediaExtractor) {
+            try {
+                setDataInner(extractor) //修复可能出现IOException: Failed to instantiate extractor.
+            } catch (e: Exception) {
+                ALog.e(TAG, "AssetsFileContainer setDataSource error $e")
+                close()
+                makeFd()
+                setDataInner(extractor)
+            }
+        }
+
+        private fun setDataInner(extractor: MediaExtractor) {
             if (assetFd.declaredLength < 0) {
                 extractor.setDataSource(assetFd.fileDescriptor)
             } else {
