@@ -147,7 +147,7 @@ fun AnimView.load(
     val isUrl = SourceUtil.isUrl(data)
     if (isUrl) {
         //下载文件并缓存
-        launch(Dispatchers.IO) {
+        loadJob = launch(Dispatchers.IO) {
             //读取缓存文件
             val cacheKey = VapFileCache.buildCacheKey(data)
             val cacheFile = VapFileCache.buildCacheFile(cacheKey, context).first()
@@ -157,7 +157,7 @@ fun AnimView.load(
             }
             VapManager.downLoad(data, cacheFile).collectLatest {
                 ALog.d("AnimView", "load url: $data, state = $it")
-                if (it.isSuccessful()) {
+                if (it.isSuccessful() && isAttachedToWindow) {
                     it.file?.let { file ->
                         startPlayForce(file, onStartRenderOnce)
                     }

@@ -25,6 +25,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.TextureView
+import android.view.View
 import android.widget.FrameLayout
 import com.tencent.qgame.animplayer.file.FileContainer
 import com.tencent.qgame.animplayer.file.IFileContainer
@@ -39,6 +40,7 @@ import com.tencent.qgame.animplayer.util.ScaleType
 import com.tencent.qgame.animplayer.util.ScaleTypeUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -61,6 +63,7 @@ open class AnimView @JvmOverloads constructor(
     private val scaleTypeUtil = ScaleTypeUtil()
     private var afterStopRunnable: Runnable? = null
     private var onStartRenderCallback: (() -> Unit)? = null
+    internal var loadJob: Job? = null
 
     private val player: AnimPlayer by lazy {
         AnimPlayer(this).apply {
@@ -232,7 +235,17 @@ open class AnimView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         player.isDetachedFromWindow = true
+        loadJob?.cancel("onDetachedFromWindow")
+        loadJob = null
         onPause()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        when (visibility) {
+            VISIBLE -> onResume()
+            INVISIBLE, GONE -> onPause()
+        }
     }
 
 
@@ -435,6 +448,7 @@ open class AnimView @JvmOverloads constructor(
         player.isDetachedFromWindow = true
         destroy()
         uiHandler.removeCallbacksAndMessages(null)
+        setFetchResource(null)
         cancel("release")
     }
 
