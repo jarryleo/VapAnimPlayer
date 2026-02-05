@@ -4,14 +4,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
@@ -50,8 +52,15 @@ class FileDownloadManager(
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder().build(),
     private val maxConcurrentDownloads: Int = 3
 ) {
+    private var scope: CoroutineScope? = null
     private val downloadJobs = ConcurrentHashMap<String, Job>()
     private val downloadStatus = ConcurrentHashMap<String, MutableStateFlow<DownloadStatus>>()
+
+    private fun ensureScope() {
+        if (scope == null || scope?.isActive == false) {
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        }
+    }
 
     // 启动下载
     fun download(
@@ -85,9 +94,10 @@ class FileDownloadManager(
         val headers = value.headers
         val file = value.file ?: return
         //开始下载任务
-        val job = CoroutineScope(Dispatchers.IO).launch {
+        ensureScope()
+        val job = scope?.launch {
             downloadInternal(url, file, headers, state)
-        }
+        } ?: return
         downloadJobs[url] = job
     }
 
@@ -250,21 +260,14 @@ class FileDownloadManager(
 
     // 清理资源
     fun cleanup() {
-        downloadJobs.forEach { (_, job) -> job.cancel() }
+        scope?.cancel()
+        scope = null
         downloadJobs.clear()
         downloadStatus.clear()
     }
 
-    private fun Response.closeQuietly() {
-        try {
-            close()
-        } catch (ignored: Exception) {
-            // 忽略关闭异常
-        }
-    }
-
     private fun ensureActive(url: String) {
-        val job = downloadJobs.get(url)
+        val job = downloadJobs[url]
         if (job?.isCancelled == true) {
             throw CancellationException("Download was cancelled")
         }
