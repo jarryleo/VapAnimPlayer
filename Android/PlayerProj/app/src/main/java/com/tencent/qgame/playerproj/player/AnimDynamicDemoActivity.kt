@@ -15,36 +15,25 @@
  */
 package com.tencent.qgame.playerproj.player
 
-import android.graphics.Bitmap
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.util.Base64
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.tencent.qgame.animplayer.AnimConfig
 import com.tencent.qgame.animplayer.AnimView
-import com.tencent.qgame.animplayer.PointRect
-import com.tencent.qgame.animplayer.RefVec2
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.load
-import com.tencent.qgame.animplayer.mask.MaskConfig
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.animplayer.util.ScaleType
 import com.tencent.qgame.playerproj.databinding.ActivityAnimSimpleDemoBinding
-import java.nio.ByteBuffer
-import java.util.zip.Inflater
-import kotlin.experimental.and
-import kotlin.math.sqrt
 
 
 /**
  * VAPX demo (融合特效Demo)
  * 必须使用组件里提供的工具才能生成VAPX动画
  */
-class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
+class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
 
     companion object {
         private const val TAG = "AnimSimpleDemoActivity"
@@ -57,23 +46,11 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
     // 视频信息
     data class VideoInfo(val fileName: String, val md5: String)
 
-    private val videoInfo = VideoInfo("mask_trunk_demo.mp4", "74d24e6235304e3c56b12d4867ea7d30")
+    private val videoInfo = VideoInfo("pk_start.mp4", "74d24e6235304e3c56b12d4867ea7d30")
 
 
     // 动画View
     private lateinit var animView: AnimView
-    var maskBitmap: Bitmap? = null
-
-
-    private val uiHandler by lazy {
-        Handler(Looper.getMainLooper())
-    }
-
-    override fun onStop() {
-        maskBitmap?.recycle()
-        maskBitmap = null
-        super.onStop()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,8 +68,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
         animView = binding.playerView
         // 居中（根据父布局按比例居中并全部显示s）
         animView.setScaleType(ScaleType.FIT_CENTER)
-        // 启动过滤遮罩s
-        animView.supportMask(true, true)
         // 注册动画监听
         animView.setAnimListener(this)
         /**
@@ -103,16 +78,17 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
     }
 
     private fun play(videoInfo: VideoInfo) {
-        animView.load(videoInfo.fileName)
-    }
-
-    /**
-     * 视频信息准备好后的回调，用于检查视频准备好后是否继续播放
-     * @return true 继续播放 false 停止播放
-     */
-    override fun onVideoConfigReady(config: AnimConfig): Boolean {
-        updateTestMask()
-        return true
+        animView.load(
+            data = videoInfo.fileName,
+            dynamic = {
+                setImage("avatar1", "https://picsum.photos/300/300?random=1")
+                setImage("avatar2", "https://picsum.photos/300/300?random=2")
+                setText("nick1", "nick1")
+                setText("nick2", "nick2")
+                setText("ID1", "ID1")
+                setText("ID2", "ID2")
+            }
+        )
     }
 
     /**
@@ -182,16 +158,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
         }
     }
 
-    private fun updateTestMask() {
-        val bitmap =
-            handleDepthMaskData("eNrt1cFtxSAMBuAgDhwZIZuU0WCTjlJGyQgckYpwn57U6kGInYQQkPq4foeAHf+epvf5P+eDcDAoM1hQ5+BQlxBQVxBR1wD49XFnDzfo9QEs4VgBxA53aHlo9xU+Pzw0dPXwWOmAt7+9m/MOe9x2c/b0pbO7bs53ue/sobPHzg6juxncbS8XgAfAIO7OurzGfWcPZ32+x+NZV2M49PatgNAX+VYAAO7y1xe0vZv++/mNAeOAuyD873obAzQTrnZ7wJ9X7fGUw2UOLZzd6KaBv77PDu5LpbvG7is9VHps7IDG2zkXd7q53uURt1h8l11X+iuXBqS36yPu3o56IWBUpeuRPKDrreSccHHAvwj/LASovNEl6YC6aO8Ga1/BBeEz4Spze9A14cnfw+s8Us7WAXmpTytn6XCsAihzTbo/5jx1RXpAfSYdKDeYy7yBPA03mRd47W67Pk/3NS7yhLvZ+SphV+4JdzXOhnOdLj/al9y/U7d5vk2vro/6DEZhLlNX6/WYeGF9G1H2H2Jpic4=")
-        val maskConfig = MaskConfig()
-        maskConfig.safeSetMaskBitmapAndReleasePre(bitmap)
-        maskConfig.maskTexPair = Pair(PointRect(0, 0, 1080, 607), RefVec2(1080, 607))
-        maskConfig.maskPositionPair = Pair(PointRect(64, 64, 128, 128), RefVec2(256, 256))
-        animView.updateMaskConfig(maskConfig)
-    }
-
 
     private fun initTestView() {
         binding.btnLayout.visibility = View.VISIBLE
@@ -199,7 +165,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
          * 开始播放按钮
          */
         binding.btnPlay.setOnClickListener {
-            updateTestMask()
             play(videoInfo)
         }
         /**
@@ -208,47 +173,6 @@ class AnimActiveDemoActivity : AppCompatActivity(), IAnimListener {
         binding.btnStop.setOnClickListener {
             animView.stopPlay()
         }
-    }
-
-    /**
-     * 将Base64的bitmap转换为真正的bitmap
-     */
-    private fun handleDepthMaskData(compressedBase64Data: String): Bitmap? {
-        var zipInflater: Inflater? = null
-        try {
-            val base64Bytes = Base64.decode(compressedBase64Data, Base64.DEFAULT)
-            zipInflater = Inflater()
-            zipInflater.setInput(base64Bytes, 0, base64Bytes.size)
-            val zlibBytes = ByteArray(128 * 128)
-            val zlibByteLength = zipInflater.inflate(zlibBytes)
-            if (zlibByteLength > 0) {
-                val resultBytes = ByteArray(zlibByteLength * 8 * 4)
-                for (outLoop in 0 until zlibByteLength) { //位展开操作
-                    for (inLoop in 0 until 8) {
-                        if (zlibBytes[outLoop] and (1 shl inLoop).toByte() == 0.toByte()) {
-                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 1] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 2] = 255.toByte()
-                            resultBytes[outLoop * 8 * 4 + (7 - inLoop) * 4 + 3] = 255.toByte()
-                        }
-                    }
-                }
-                val width = sqrt((zlibByteLength * 8).toDouble())
-                if (maskBitmap == null || maskBitmap?.isRecycled != false || (maskBitmap?.width
-                        ?: 0) < width
-                ) {
-                    maskBitmap =
-                        Bitmap.createBitmap(width.toInt(), width.toInt(), Bitmap.Config.ARGB_8888)
-                }
-                maskBitmap?.copyPixelsFromBuffer(ByteBuffer.wrap(resultBytes))
-
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "base64ToBitmap error:" + e.message)
-        } finally {
-            zipInflater?.end()
-        }
-        return maskBitmap
     }
 }
 

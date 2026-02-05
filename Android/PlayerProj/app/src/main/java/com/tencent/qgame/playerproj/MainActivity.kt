@@ -24,6 +24,7 @@ import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IALog
 import com.tencent.qgame.playerproj.databinding.ActivityMainBinding
 import com.tencent.qgame.playerproj.player.AnimActiveDemoActivity
+import com.tencent.qgame.playerproj.player.AnimDynamicDemoActivity
 import com.tencent.qgame.playerproj.player.AnimSimpleDemoActivity
 import com.tencent.qgame.playerproj.player.AnimSpecialSizeDemoActivity
 import com.tencent.qgame.playerproj.player.AnimUrlDemoActivity
@@ -54,6 +55,9 @@ class MainActivity : Activity() {
                 startActivity(Intent(context, AnimUrlDemoActivity::class.java))
             }
             btn6.setOnClickListener {
+                startActivity(Intent(context, AnimDynamicDemoActivity::class.java))
+            }
+            btn7.setOnClickListener {
                 VapManager.clearCache()
             }
         }

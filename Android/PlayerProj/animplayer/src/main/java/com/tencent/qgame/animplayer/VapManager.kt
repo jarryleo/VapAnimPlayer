@@ -1,6 +1,7 @@
 package com.tencent.qgame.animplayer
 
 import android.content.Context
+import com.tencent.qgame.animplayer.cache.BitmapCache
 import com.tencent.qgame.animplayer.cache.VapFileCache
 import com.tencent.qgame.animplayer.download.DownloadStatus
 import com.tencent.qgame.animplayer.download.FileDownloadManager
@@ -30,6 +31,7 @@ object VapManager {
 
     fun clearCache() {
         VapFileCache.clearCache()
+        BitmapCache.INSTANCE.clear()
     }
 
     /**

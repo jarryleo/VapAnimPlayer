@@ -26,6 +26,7 @@
         <activity android:name=".player.AnimActiveDemoActivity" android:screenOrientation="portrait"/>
         <activity android:name=".player.AnimSpecialSizeDemoActivity" android:screenOrientation="portrait"/>
         <activity android:name=".player.AnimUrlDemoActivity" android:screenOrientation="portrait"/>
+        <activity android:name=".player.AnimDynamicDemoActivity" android:screenOrientation="portrait"/>
 
     </application>
 

@@ -47,6 +47,12 @@
             android:id="@+id/btn6"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="动态元素展示" />
+
+        <Button
+            android:id="@+id/btn7"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="清除下载缓存" />
 
     </LinearLayout>

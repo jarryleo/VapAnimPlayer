@@ -36,7 +36,7 @@ object VapFileCache : CoroutineScope by MainScope() {
         if (isInitialized()) return
         launch(Dispatchers.IO) {
             cacheDir = "${context.cacheDir.absolutePath}/vap/"
-            File(cacheDir).takeIf { !it.exists() }?.mkdirs()
+            runCatching { File(cacheDir).takeIf { !it.exists() }?.mkdirs() }
             onInitComplete.invoke()
         }
     }
@@ -100,6 +100,21 @@ object VapFileCache : CoroutineScope by MainScope() {
                 }
             } else {
                 trySend(File("$cacheDir$cacheKey.mp4"))
+            }
+            awaitClose {
+                cancel()
+            }
+        }
+    }
+
+    internal fun buildCacheBitmapFile(cacheKey: String, context: Context): Flow<File> {
+        return callbackFlow {
+            if (cacheDir.isEmpty()) {
+                init(context) {
+                    trySend(File("$cacheDir$cacheKey.png"))
+                }
+            } else {
+                trySend(File("$cacheDir$cacheKey.png"))
             }
             awaitClose {
                 cancel()
