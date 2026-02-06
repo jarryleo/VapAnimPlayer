@@ -88,7 +88,13 @@ class AnimSpecialSizeDemoActivity : AppCompatActivity(), IAnimListener {
 
 
     private fun play(videoInfo: VideoInfo) {
-        animView.load(videoInfo.fileName)
+        val startTime = System.currentTimeMillis()
+        animView.load(
+            videoInfo.fileName,
+            onStartRenderOnce = {
+                Log.i(TAG, "onStartRenderOnce time=${System.currentTimeMillis() - startTime}")
+            }
+        )
     }
 
 

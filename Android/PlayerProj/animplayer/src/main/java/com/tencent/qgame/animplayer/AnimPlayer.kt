@@ -35,6 +35,7 @@ class AnimPlayer(val animView: IAnimView) {
             decoder?.fps = value
             field = value
         }
+
     // 设置默认的fps <= 0 表示以vapc配置为准 > 0  表示以此设置为准
     var defaultFps: Int = 0
     var playLoop: Int = 0
@@ -43,10 +44,12 @@ class AnimPlayer(val animView: IAnimView) {
             audioPlayer?.playLoop = value
             field = value
         }
-    var supportMaskBoolean : Boolean = false
-    var maskEdgeBlurBoolean : Boolean = false
+    var supportMaskBoolean: Boolean = false
+    var maskEdgeBlurBoolean: Boolean = false
+
     // 是否兼容老版本 默认不兼容
-    var enableVersion1 : Boolean = false
+    var enableVersion1: Boolean = false
+
     // 视频模式
     var videoMode: Int = Constant.VIDEO_MODE_SPLIT_HORIZONTAL
     var isDetachedFromWindow = false
@@ -81,13 +84,17 @@ class AnimPlayer(val animView: IAnimView) {
         prepareDecoder()
         if (decoder?.prepareThread() == false) {
             isStartRunning = false
-            decoder?.onFailed(Constant.REPORT_ERROR_TYPE_CREATE_THREAD, Constant.ERROR_MSG_CREATE_THREAD)
+            decoder?.onFailed(
+                Constant.REPORT_ERROR_TYPE_CREATE_THREAD,
+                Constant.ERROR_MSG_CREATE_THREAD
+            )
             decoder?.onVideoComplete()
             return
         }
         // 在线程中解析配置
         decoder?.renderThread?.handler?.post {
-            val result = configManager.parseConfig(fileContainer, enableVersion1, videoMode, defaultFps)
+            val result =
+                configManager.parseConfig(fileContainer, enableVersion1, videoMode, defaultFps)
             if (result != Constant.OK) {
                 isStartRunning = false
                 decoder?.onFailed(result, Constant.getErrorMsg(result))
@@ -114,9 +121,9 @@ class AnimPlayer(val animView: IAnimView) {
                     audioPlayer?.start(fileContainer)
                 }
             } else {
-                 startRunnable = Runnable {
+                startRunnable = Runnable {
                     innerStartPlay(fileContainer)
-                 }
+                }
                 animView.prepareTextureView()
             }
         }

@@ -79,6 +79,7 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
     }
 
     private fun play(videoInfo: VideoInfo) {
+        val startTime = System.currentTimeMillis()
         val url = videoInfo.fileName
         animView.load(
             data = url,
@@ -90,6 +91,9 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
                 setText("nick2", "nick2")
                 setText("ID1", "ID1")
                 setText("ID2", "ID2")
+            },
+            onStartRenderOnce = {
+                Log.i(TAG, "onStartRenderOnce time=${System.currentTimeMillis() - startTime}")
             }
         )
     }

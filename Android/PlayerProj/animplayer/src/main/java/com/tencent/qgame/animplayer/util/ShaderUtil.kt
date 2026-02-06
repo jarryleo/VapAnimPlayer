@@ -21,7 +21,6 @@ import com.tencent.qgame.animplayer.Constant
 object ShaderUtil {
     private const val TAG = "${Constant.TAG}.ShaderUtil"
 
-
     fun createProgram(vertexSource: String, fragmentSource: String): Int {
         val vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
         val fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)

@@ -99,13 +99,13 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
 
             // 是否支持h265
             if (MediaUtil.checkIsHevc(format)) {
-                if (Build.VERSION.SDK_INT  < Build.VERSION_CODES.LOLLIPOP
-                    || !MediaUtil.checkSupportCodec(MediaUtil.MIME_HEVC)) {
-
-                    onFailed(Constant.REPORT_ERROR_TYPE_HEVC_NOT_SUPPORT,
+                if (!MediaUtil.isHevcSupported) {
+                    onFailed(
+                        Constant.REPORT_ERROR_TYPE_HEVC_NOT_SUPPORT,
                         "${Constant.ERROR_MSG_HEVC_NOT_SUPPORT} " +
                                 "sdk:${Build.VERSION.SDK_INT}" +
-                                ",support hevc:" + MediaUtil.checkSupportCodec(MediaUtil.MIME_HEVC))
+                                ",support hevc:" + MediaUtil.isHevcSupported
+                    )
                     release(null, null)
                     return
                 }
@@ -128,7 +128,10 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                     throw RuntimeException("render create fail")
                 }
             } catch (t: Throwable) {
-                onFailed(Constant.REPORT_ERROR_TYPE_CREATE_RENDER, "${Constant.ERROR_MSG_CREATE_RENDER} e=$t")
+                onFailed(
+                    Constant.REPORT_ERROR_TYPE_CREATE_RENDER,
+                    "${Constant.ERROR_MSG_CREATE_RENDER} e=$t"
+                )
                 release(null, null)
                 return
             }
@@ -145,7 +148,10 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
 
         } catch (e: Throwable) {
             ALog.e(TAG, "MediaExtractor exception e=$e", e)
-            onFailed(Constant.REPORT_ERROR_TYPE_EXTRACTOR_EXC, "${Constant.ERROR_MSG_EXTRACTOR_EXC} e=$e")
+            onFailed(
+                Constant.REPORT_ERROR_TYPE_EXTRACTOR_EXC,
+                "${Constant.ERROR_MSG_EXTRACTOR_EXC} e=$e"
+            )
             release(decoder, extractor)
             return
         }
@@ -156,8 +162,8 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
             decoder = MediaCodec.createDecoderByType(mime).apply {
                 if (needYUV) {
                     format.setInteger(
-                            MediaFormat.KEY_COLOR_FORMAT,
-                            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+                        MediaFormat.KEY_COLOR_FORMAT,
+                        MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
                     )
                     configure(format, null, null, 0)
                 } else {
@@ -171,7 +177,10 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                         startDecode(extractor, this)
                     } catch (e: Throwable) {
                         ALog.e(TAG, "MediaCodec exception e=$e", e)
-                        onFailed(Constant.REPORT_ERROR_TYPE_DECODE_EXC, "${Constant.ERROR_MSG_DECODE_EXC} e=$e")
+                        onFailed(
+                            Constant.REPORT_ERROR_TYPE_DECODE_EXC,
+                            "${Constant.ERROR_MSG_DECODE_EXC} e=$e"
+                        )
                         release(decoder, extractor)
                     }
                 }
@@ -184,7 +193,7 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
         }
     }
 
-    private fun startDecode(extractor: MediaExtractor ,decoder: MediaCodec) {
+    private fun startDecode(extractor: MediaExtractor, decoder: MediaCodec) {
         val TIMEOUT_USEC = 10000L
         var inputChunk = 0
         var outputDone = false
@@ -207,7 +216,13 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                     val inputBuf = decoderInputBuffers[inputBufIndex]
                     val chunkSize = extractor.readSampleData(inputBuf, 0)
                     if (chunkSize < 0) {
-                        decoder.queueInputBuffer(inputBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        decoder.queueInputBuffer(
+                            inputBufIndex,
+                            0,
+                            0,
+                            0L,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                        )
                         inputDone = true
                         ALog.d(TAG, "decode EOS")
                     } else {
@@ -225,8 +240,16 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
             if (!outputDone) {
                 val decoderStatus = decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC)
                 when {
-                    decoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER -> ALog.d(TAG, "no output from decoder available")
-                    decoderStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> ALog.d(TAG, "decoder output buffers changed")
+                    decoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER -> ALog.d(
+                        TAG,
+                        "no output from decoder available"
+                    )
+
+                    decoderStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> ALog.d(
+                        TAG,
+                        "decoder output buffers changed"
+                    )
+
                     decoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         outputFormat = decoder.outputFormat
                         outputFormat?.apply {
@@ -244,9 +267,11 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                         }
                         ALog.i(TAG, "decoder output format changed: $outputFormat")
                     }
+
                     decoderStatus < 0 -> {
                         throw RuntimeException("unexpected result from decoder.dequeueOutputBuffer: $decoderStatus")
                     }
+
                     else -> {
                         var loop = 0
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
@@ -315,8 +340,24 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                 }
 
                 yuvCopy(yuvData, 0, alignWidth, alignHeight, yData, videoWidth, videoHeight)
-                yuvCopy(yuvData, alignWidth * alignHeight, alignWidth / 2, alignHeight / 2, uData, videoWidth / 2, videoHeight / 2)
-                yuvCopy(yuvData, alignWidth * alignHeight * 5 / 4, alignWidth / 2, alignHeight / 2, vData, videoWidth / 2, videoHeight / 2)
+                yuvCopy(
+                    yuvData,
+                    alignWidth * alignHeight,
+                    alignWidth / 2,
+                    alignHeight / 2,
+                    uData,
+                    videoWidth / 2,
+                    videoHeight / 2
+                )
+                yuvCopy(
+                    yuvData,
+                    alignWidth * alignHeight * 5 / 4,
+                    alignWidth / 2,
+                    alignHeight / 2,
+                    vData,
+                    videoWidth / 2,
+                    videoHeight / 2
+                )
 
                 render?.setYUVData(videoWidth, videoHeight, yData, uData, vData)
                 renderData()
@@ -339,7 +380,15 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
         return yuv420p
     }
 
-    private fun yuvCopy(src: ByteArray, srcOffset: Int, inWidth: Int, inHeight: Int, dest: ByteArray, outWidth: Int, outHeight: Int) {
+    private fun yuvCopy(
+        src: ByteArray,
+        srcOffset: Int,
+        inWidth: Int,
+        inHeight: Int,
+        dest: ByteArray,
+        outWidth: Int,
+        outHeight: Int
+    ) {
         for (h in 0 until inHeight) {
             if (h < outHeight) {
                 System.arraycopy(src, srcOffset + h * inWidth, dest, h * outWidth, outWidth)

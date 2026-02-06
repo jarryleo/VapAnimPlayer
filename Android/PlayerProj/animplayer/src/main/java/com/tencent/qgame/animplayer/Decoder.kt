@@ -15,9 +15,10 @@
  */
 package com.tencent.qgame.animplayer
 
+import android.annotation.SuppressLint
 import android.os.Build
-import android.os.HandlerThread
 import android.os.Handler
+import android.os.HandlerThread
 import com.tencent.qgame.animplayer.file.IFileContainer
 import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.util.ALog
@@ -44,6 +45,7 @@ abstract class Decoder(val player: AnimPlayer) : IAnimListener {
             return false
         }
 
+        @SuppressLint("ObsoleteSdkInt")
         fun quitSafely(thread: HandlerThread?): HandlerThread? {
             thread?.apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -116,7 +118,10 @@ abstract class Decoder(val player: AnimPlayer) : IAnimListener {
         if (newWidth <= 0 || newHeight <= 0) return
         val config = player.configManager.config ?: return
         if (config.videoWidth != newWidth || config.videoHeight != newHeight) {
-            ALog.i(TAG, "videoSizeChange old=(${config.videoWidth},${config.videoHeight}), new=($newWidth,$newHeight)")
+            ALog.i(
+                TAG,
+                "videoSizeChange old=(${config.videoWidth},${config.videoHeight}), new=($newWidth,$newHeight)"
+            )
             config.videoWidth = newWidth
             config.videoHeight = newHeight
             render?.setAnimConfig(config)

@@ -15,24 +15,28 @@
  */
 package com.tencent.qgame.animplayer.util
 
+import android.annotation.SuppressLint
 import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.os.Build
 import com.tencent.qgame.animplayer.Constant
 import com.tencent.qgame.animplayer.file.IFileContainer
-import java.util.Locale
 import java.util.Locale.getDefault
-import kotlin.collections.HashMap
 
 
+@SuppressLint("ObsoleteSdkInt")
 object MediaUtil {
+
+    const val MIME_HEVC = "video/hevc"
 
     private const val TAG = "${Constant.TAG}.MediaUtil"
 
     private var isTypeMapInit = false
     private val supportTypeMap = HashMap<String, Boolean>()
-
-    const val MIME_HEVC = "video/hevc"
+    val isHevcSupported by lazy {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && checkSupportCodec(MIME_HEVC)
+    }
 
     fun getExtractor(file: IFileContainer): MediaExtractor {
         val extractor = MediaExtractor()
@@ -43,7 +47,7 @@ object MediaUtil {
     /**
      * 是否为h265的视频
      */
-    fun checkIsHevc(videoFormat: MediaFormat):Boolean {
+    fun checkIsHevc(videoFormat: MediaFormat): Boolean {
         val mime = videoFormat.getString(MediaFormat.KEY_MIME) ?: ""
         return mime.contains("hevc")
     }

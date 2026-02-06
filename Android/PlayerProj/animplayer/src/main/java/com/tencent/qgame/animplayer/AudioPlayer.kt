@@ -15,11 +15,15 @@
  */
 package com.tencent.qgame.animplayer
 
-import android.media.*
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import com.tencent.qgame.animplayer.file.IFileContainer
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.MediaUtil
-import java.lang.RuntimeException
 
 class AudioPlayer(val player: AnimPlayer) {
 
@@ -95,9 +99,16 @@ class AudioPlayer(val player: AnimPlayer) {
         val bufferInfo = MediaCodec.BufferInfo()
         val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         val channelConfig = getChannelConfig(format.getInteger(MediaFormat.KEY_CHANNEL_COUNT))
-
-        val bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
-        val audioTrack = AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM)
+        val bufferSize =
+            AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
+        val audioTrack = AudioTrack(
+            AudioManager.STREAM_MUSIC,
+            sampleRate,
+            channelConfig,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize,
+            AudioTrack.MODE_STREAM
+        )
         this.audioTrack = audioTrack
         val state = audioTrack.state
         if (state != AudioTrack.STATE_INITIALIZED) {
@@ -117,7 +128,13 @@ class AudioPlayer(val player: AnimPlayer) {
                     val sampleSize = extractor.readSampleData(inputBuffer, 0)
                     if (sampleSize < 0) {
                         isEOS = true
-                        decoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        decoder.queueInputBuffer(
+                            inputIndex,
+                            0,
+                            0,
+                            0,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                        )
                     } else {
                         decoder.queueInputBuffer(inputIndex, 0, sampleSize, 0, 0)
                         extractor.advance()
