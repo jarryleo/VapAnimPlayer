@@ -62,6 +62,9 @@ class AnimPlayer(val animView: IAnimView) {
     val pluginManager = AnimPluginManager(this)
 
     fun onSurfaceTextureDestroyed() {
+        if (!isSurfaceAvailable && !isStartRunning) {
+            return
+        }
         isSurfaceAvailable = false
         isStartRunning = false
         decoder?.destroy()
@@ -116,9 +119,9 @@ class AnimPlayer(val animView: IAnimView) {
         synchronized(AnimPlayer::class.java) {
             if (isSurfaceAvailable) {
                 isStartRunning = false
-                decoder?.start(fileContainer)
+                decoder?.start(fileContainer) //解码视频
                 if (!isMute) {
-                    audioPlayer?.start(fileContainer)
+                    audioPlayer?.start(fileContainer) //解码音频
                 }
             } else {
                 startRunnable = Runnable {
