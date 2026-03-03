@@ -379,7 +379,7 @@ open class AnimView @JvmOverloads constructor(
                     ALog.d(TAG, "afterStopRunnable isAttachedToWindow = false")
                 }
             }
-            stopPlay()
+            player.stopPlay()
         } else {
             ALog.d(TAG, "startPlayForce called ${this.hashCode()}")
             onStartRenderCallback = onStartRenderOnce
@@ -423,6 +423,7 @@ open class AnimView @JvmOverloads constructor(
 
     override fun stopPlay() {
         ALog.d(TAG, "stopPlay called")
+        afterStopRunnable = null
         player.stopPlay()
     }
 
