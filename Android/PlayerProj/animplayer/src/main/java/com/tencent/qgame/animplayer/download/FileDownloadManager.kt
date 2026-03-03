@@ -101,7 +101,7 @@ class FileDownloadManager(
         downloadJobs[url] = job
     }
 
-    private suspend fun CoroutineScope.downloadInternal(
+    private fun downloadInternal(
         url: String,
         destination: File,
         headers: Map<String, String>,

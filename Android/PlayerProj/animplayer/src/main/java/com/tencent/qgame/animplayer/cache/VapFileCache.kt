@@ -15,7 +15,7 @@ import java.net.URL
 import java.security.MessageDigest
 
 /**
- * SVGA 缓存管理（文件缓存）
+ * vap 缓存管理（文件缓存）
  */
 object VapFileCache : CoroutineScope by MainScope() {
 
@@ -46,12 +46,12 @@ object VapFileCache : CoroutineScope by MainScope() {
      */
     internal fun clearCache() {
         if (!isInitialized()) {
-            ALog.e(TAG, "SVGACache is not init!")
+            ALog.e(TAG, "vapCache is not init!")
             return
         }
         launch(Dispatchers.IO) {
             clearDir(cacheDir)
-            ALog.i(TAG, "Clear svga cache done!")
+            ALog.i(TAG, "Clear vap cache done!")
         }
     }
 
@@ -71,7 +71,7 @@ object VapFileCache : CoroutineScope by MainScope() {
                 }
             }
         } catch (e: Exception) {
-            ALog.e(TAG, "Clear svga cache path: $path fail", e)
+            ALog.e(TAG, "Clear vap cache path: $path fail", e)
         }
     }
 

@@ -11,7 +11,9 @@ internal object BitmapInputStreamDecoder : BitmapDecoder<InputStream>() {
 
     override fun onDecode(data: InputStream, ops: BitmapFactory.Options): Bitmap? {
         return runCatching {
-            BitmapFactory.decodeStream(data, null, ops)
+            data.use {
+                BitmapFactory.decodeStream(it, null, ops)
+            }
         }.getOrNull()
     }
 }

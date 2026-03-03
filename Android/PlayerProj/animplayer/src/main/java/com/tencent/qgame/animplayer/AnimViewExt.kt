@@ -5,7 +5,6 @@ import com.tencent.qgame.animplayer.bitmap.BitmapFileDecoder
 import com.tencent.qgame.animplayer.bitmap.BitmapInputStreamDecoder
 import com.tencent.qgame.animplayer.bitmap.BitmapResDecoder
 import com.tencent.qgame.animplayer.cache.VapFileCache
-import com.tencent.qgame.animplayer.download.BitmapDownloader
 import com.tencent.qgame.animplayer.inter.IFetchResource
 import com.tencent.qgame.animplayer.mix.Resource
 import com.tencent.qgame.animplayer.util.ALog
@@ -68,7 +67,7 @@ fun AnimView.load(
                     val isFilePath = SourceUtil.isFilePath(image)
                     if (isUrl) { //下载网络图片
                         runBlocking {
-                            BitmapDownloader.downloadBitmap(context, image, reqWidth, reqHeight)
+                            VapManager.downloadBitmap(context, image, reqWidth, reqHeight)
                         }
                     } else if (isFilePath) { //加载文件
                         BitmapFileDecoder.decodeBitmapFrom(image, reqWidth, reqHeight)

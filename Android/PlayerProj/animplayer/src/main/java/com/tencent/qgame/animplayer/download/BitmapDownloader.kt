@@ -10,22 +10,23 @@ import com.tencent.qgame.animplayer.util.ALog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URL
 import java.net.URLDecoder
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * @Author     :Leo
  * Date        :2024/7/2
  * Description : Bitmap下载器
  */
-object BitmapDownloader {
+object BitmapDownloader : BitmapDownloadInterface {
     private val downLoadQueue = ConcurrentLinkedQueue<String>()
 
-    suspend fun downloadBitmap(
+    override suspend fun downloadBitmap(
         context: Context,
         url: String,
         reqWidth: Int,
@@ -60,7 +61,7 @@ object BitmapDownloader {
         )
         downLoadQueue.add(url)
         val bitmap = withTimeoutOrNull(30_000) {
-            suspendCoroutine {
+            suspendCancellableCoroutine {
                 val decode = try {
                     URLDecoder.decode(url, "UTF-8")
                 } catch (e: Exception) {
@@ -72,7 +73,7 @@ object BitmapDownloader {
                 } catch (e: Exception) {
                     e.printStackTrace()
                     it.resume(null)
-                    return@suspendCoroutine
+                    return@suspendCancellableCoroutine
                 }
                 val bitmap = BitmapUrlDecoder.decodeBitmapFrom(
                     urlSafe,
@@ -112,7 +113,7 @@ object BitmapDownloader {
         context: Context,
         cacheKey: String,
         bitmap: Bitmap
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val cacheFile = VapFileCache.buildCacheBitmapFile(cacheKey, context).first()
         if (!cacheFile.exists()) {
             cacheFile.createNewFile()
