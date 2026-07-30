@@ -5,15 +5,19 @@ import com.tencent.qgame.animplayer.bitmap.BitmapFileDecoder
 import com.tencent.qgame.animplayer.bitmap.BitmapInputStreamDecoder
 import com.tencent.qgame.animplayer.bitmap.BitmapResDecoder
 import com.tencent.qgame.animplayer.cache.VapFileCache
+import com.tencent.qgame.animplayer.download.DownloadState
+import com.tencent.qgame.animplayer.download.DownloadStatus
 import com.tencent.qgame.animplayer.inter.IFetchResource
 import com.tencent.qgame.animplayer.mix.Resource
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.SourceUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class DynamicResource {
@@ -41,17 +45,19 @@ class DynamicResource {
  */
 fun AnimView.load(
     data: Any?,
-    loopCount: Int = 0,
+    loopCount: Int? = null,
     onStartRenderOnce: () -> Unit = {},
+    downloadState: (DownloadStatus) -> Unit = {},
     dynamic: DynamicResource.() -> Unit,
     onRelease: (resource: List<Resource>) -> Unit = {}
 ) {
     val dynamicResource = DynamicResource()
     dynamic.invoke(dynamicResource)
     load(
-        data,
-        loopCount,
-        onStartRenderOnce,
+        data = data,
+        loopCount = loopCount,
+        onStartRenderOnce = onStartRenderOnce,
+        downloadState = downloadState,
         dynamicImage = {
             val tag = it.tag
             val reqWidth = it.curPoint?.w ?: 0
@@ -106,13 +112,16 @@ fun AnimView.load(
  */
 fun AnimView.load(
     data: Any?,
-    loopCount: Int = 0,
+    loopCount: Int? = null,
     onStartRenderOnce: () -> Unit = {},
+    downloadState: (DownloadStatus) -> Unit = {},
     dynamicImage: (resource: Resource) -> Bitmap? = { null },
     dynamicText: (resource: Resource) -> String? = { null },
     onRelease: (resource: List<Resource>) -> Unit = {}
 ) {
-    setLoop(loopCount)
+    loopCount?.let {
+        setLoop(it.coerceAtLeast(1))
+    }
     setFetchResource(object : IFetchResource {
         override fun fetchImage(
             resource: Resource,
@@ -134,28 +143,35 @@ fun AnimView.load(
     })
     if (data == null) {
         stopPlay()
-        return
+        return downloadState(DownloadStatus(state = DownloadState.FAILED))
     }
     if (data is File) {
         startPlayForce(data, onStartRenderOnce)
-        return
+        return downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = data))
     }
     if (data !is String) {
-        return
+        return downloadState(DownloadStatus(state = DownloadState.FAILED))
     }
     val isUrl = SourceUtil.isUrl(data)
     if (isUrl) {
         //下载文件并缓存
+        loadJob?.cancel("load new url")
         loadJob = launch(Dispatchers.IO) {
             //读取缓存文件
             val cacheKey = VapFileCache.buildCacheKey(data)
             val cacheFile = VapFileCache.buildCacheFile(cacheKey, context).first()
             if (cacheFile.exists()) {
                 startPlayForce(cacheFile, onStartRenderOnce)
+                withContext(Dispatchers.Main){
+                    downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = cacheFile))
+                }
                 return@launch
             }
             VapManager.downLoad(data, cacheFile).collectLatest {
                 ALog.d("AnimView", "load url: $data, state = $it")
+                withContext(Dispatchers.Main) {
+                    downloadState(it)
+                }
                 if (it.isSuccessful() && isAttachedToWindow) {
                     it.file?.let { file ->
                         startPlayForce(file, onStartRenderOnce)
@@ -167,9 +183,11 @@ fun AnimView.load(
     }
     val isFilePath = SourceUtil.isFilePath(data)
     if (isFilePath) {
-        startPlayForce(File(data), onStartRenderOnce)
-        return
+        val file = File(data)
+        startPlayForce(file, onStartRenderOnce)
+        return downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = file))
     }
     //尝试从asset中加载
     startPlayForce(data, onStartRenderOnce)
+    return downloadState(DownloadStatus(state = DownloadState.COMPLETED))
 }

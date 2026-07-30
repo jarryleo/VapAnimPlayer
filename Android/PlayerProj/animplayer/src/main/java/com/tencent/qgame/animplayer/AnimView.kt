@@ -314,6 +314,18 @@ open class AnimView @JvmOverloads constructor(
         player.isMute = isMute
     }
 
+    /**
+     * 设置音量,范围 [0.0, 1.0],超出范围会被截断。
+     * - 播放过程中调用会立即生效(对当前 AudioTrack 生效);
+     * - 播放前调用会在下一次 startPlay 创建 AudioPlayer 时自动应用。
+     * 线程安全:可在任意线程调用。
+     */
+    fun setVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        ALog.i(TAG, "setVolume=$clamped")
+        player.volume = clamped
+    }
+
     override fun startPlay(file: File) {
         try {
             val fileContainer = FileContainer(file)
@@ -368,7 +380,25 @@ open class AnimView @JvmOverloads constructor(
      * 强制播放，如果正在播放，会先停止再播放
      */
     fun startPlayForce(fileContainer: IFileContainer, onStartRenderOnce: () -> Unit = {}) {
+        if (lastFile != fileContainer) {
+            lastFile?.close() //关闭上一次播放的文件流
+            lastFile = if (fileContainer is CustomAssetsFileContainer) {
+                fileContainer.copy() //资源文件对象结束播放后不能再次播放bug
+            } else {
+                fileContainer
+            }
+        }
         if (player.isRunning()) {
+            // 启动阶段（decoder 还没起来）的早退路径：此时 stopPlay() 设的 isStopReq
+            // 会被即将到来的 decoder.start() 抹掉，afterStopRunnable 永远不会被触发，
+            // 导致上一轮 fileContainer 仍然占着 lastFile、新一轮被静默丢弃。
+            if (player.isInStartupPhase) {
+                ALog.d(TAG, "startPlayForce cancel pending startup and start fresh")
+                player.cancelPendingStart()
+                onStartRenderCallback = onStartRenderOnce
+                startPlay(fileContainer)
+                return
+            }
             ALog.d(TAG, "startPlayForce called first stopPlay ${this.hashCode()}")
             afterStopRunnable = Runnable {
                 onStartRenderCallback = onStartRenderOnce
@@ -444,13 +474,17 @@ open class AnimView @JvmOverloads constructor(
 
     /**
      * 释放资源
+     * 注意:不要取消整个 CoroutineScope(MainScope),否则 view 被复用时
+     * load(url) 中的 launch(Dispatchers.IO) 将永远不会执行,导致
+     * "读取缓存文件"之后的下载/播放链路全部失效。
      */
     fun release() {
         player.isDetachedFromWindow = true
         destroy()
         uiHandler.removeCallbacksAndMessages(null)
         setFetchResource(null)
-        cancel("release")
+        loadJob?.cancel("release")
+        loadJob = null
     }
 
     private fun ui(f: () -> Unit) {

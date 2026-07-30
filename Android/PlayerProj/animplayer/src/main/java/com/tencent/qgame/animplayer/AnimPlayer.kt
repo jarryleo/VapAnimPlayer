@@ -58,6 +58,26 @@ class AnimPlayer(val animView: IAnimView) {
     var isStartRunning = false // 启动时运行状态
     var isMute = false // 是否静音
 
+    /**
+     * 音量,范围 [0.0, 1.0]。
+     * - 播放前调用:在 prepareDecoder 创建 AudioPlayer 时同步过去,下一次播放生效。
+     * - 播放中调用:立即下发到当前 AudioPlayer/AudioTrack。
+     */
+    var volume: Float = 1f
+        set(value) {
+            val clamped = value.coerceIn(0f, 1f)
+            field = clamped
+            audioPlayer?.volume = clamped
+        }
+
+    /**
+     * 是否处于"等 surface"启动阶段：此时 decoder 还没真正起来，
+     * stopPlay() 只是在空的 isStopReq 上盖了个戳，会被即将到来的
+     * decoder.start() 同步抹掉，导致 afterStopRunnable 链路永远不触发。
+     */
+    val isInStartupPhase: Boolean
+        get() = isStartRunning && startRunnable != null
+
     val configManager = AnimConfigManager(this)
     val pluginManager = AnimPluginManager(this)
 
@@ -133,8 +153,33 @@ class AnimPlayer(val animView: IAnimView) {
     }
 
     fun stopPlay() {
+        ALog.i(TAG, "stopPlay isInStartupPhase=$isInStartupPhase decoder.isStopReq=${decoder?.isStopReq}")
+        // 启动阶段：decoder 尚未起来，stopPlay 走的 isStopReq 标志会被随后
+        // decoder.start() 同步抹掉。此时直接丢弃挂起的 startRunnable 即可。
+        if (isInStartupPhase) {
+            cancelPendingStart()
+            return
+        }
         decoder?.stop()
         audioPlayer?.stop()
+    }
+
+    /**
+     * 丢弃挂起的 startRunnable，让 AnimView 直接走 cancel + 新一次 startPlay 的路径。
+     * 同步触发 decoder.onVideoComplete() 让 AnimView 走 destroy / clearView 清干净上一个文件容器。
+     */
+    fun cancelPendingStart() {
+        if (!isInStartupPhase) {
+            ALog.i(TAG, "cancelPendingStart called but not in startup phase, noop")
+            return
+        }
+        ALog.i(TAG, "cancelPendingStart drop pending startRunnable")
+        startRunnable = null
+        isStartRunning = false
+        isSurfaceAvailable = false
+        // 触发完成链：AnimView.onVideoComplete 会清 lastFile / innerTextureView
+        // audioPlayer 在 startup 阶段没有 start 过，无需 onVideoComplete
+        decoder?.onVideoComplete()
     }
 
     fun isRunning(): Boolean {
@@ -153,6 +198,7 @@ class AnimPlayer(val animView: IAnimView) {
         if (audioPlayer == null) {
             audioPlayer = AudioPlayer(this).apply {
                 playLoop = this@AnimPlayer.playLoop
+                volume = this@AnimPlayer.volume
             }
         }
     }

@@ -40,6 +40,27 @@ class AudioPlayer(val player: AnimPlayer) {
     var isStopReq = false
     var needDestroy = false
 
+    // 保护 audioTrack 引用的锁,主线程 setVolume 与音频线程 startPlay/release 的并发点
+    private val volumeLock = Any()
+
+    /**
+     * 当前音量,范围 [0.0, 1.0]。
+     * - 播放过程中调用会立即应用到正在播放的 AudioTrack;
+     * - 未播放时调用仅缓存,下一次 startPlay 创建 AudioTrack 后自动应用。
+     */
+    var volume: Float = 1f
+        set(value) {
+            val clamped = value.coerceIn(0f, 1f)
+            synchronized(volumeLock) {
+                field = clamped
+                try {
+                    audioTrack?.setVolume(clamped)
+                } catch (e: Throwable) {
+                    ALog.e(TAG, "setVolume exception=$e", e)
+                }
+            }
+        }
+
 
 
     private fun prepareThread(): Boolean {
@@ -117,6 +138,9 @@ class AudioPlayer(val player: AnimPlayer) {
             return
         }
         audioTrack.play()
+        synchronized(volumeLock) {
+            audioTrack.setVolume(volume)
+        }
         val timeOutUs = 1000L
         var isEOS = false
         while (!isStopReq) {
