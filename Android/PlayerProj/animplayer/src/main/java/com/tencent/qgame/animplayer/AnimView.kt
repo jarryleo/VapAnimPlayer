@@ -61,8 +61,13 @@ open class AnimView @JvmOverloads constructor(
     private var innerTextureView: InnerTextureView? = null
     private var lastFile: IFileContainer? = null
     private val scaleTypeUtil = ScaleTypeUtil()
+    @Volatile
     private var afterStopRunnable: Runnable? = null
     private var onStartRenderCallback: (() -> Unit)? = null
+    // 播放请求代际号:每次 startPlayForce 递增,用于作废停止-重启链路中
+    // 过期未执行的 afterStopRunnable,避免其抢占新请求。读写均在主线程。
+    private var playGeneration = 0
+    @Volatile
     internal var loadJob: Job? = null
 
     private val player: AnimPlayer by lazy {
@@ -103,6 +108,19 @@ open class AnimView @JvmOverloads constructor(
                     TAG,
                     "onVideoComplete player.playLoop = ${player.playLoop}"
                 )
+                // 防御:上一个会话的完成回调迟到时,若新会话已在启动/播放,
+                // 不再清屏/销毁,避免拆掉新会话刚创建的纹理视图。
+                if (player.isRunning()) {
+                    ALog.d(TAG, "onVideoComplete ignore stale completion, new session is running")
+                    return
+                }
+                // 停止-重启交接中(afterStopRunnable 待执行):lastFile 已指向新会话的容器,
+                // 走销毁流程回收旧会话并触发 onVideoDestroy 交棒,但不得关闭新容器。
+                if (afterStopRunnable != null) {
+                    ALog.d(TAG, "onVideoComplete handoff pending, destroy old session only")
+                    destroy()
+                    return
+                }
                 if (player.playLoop <= 0) {
                     destroy()
                 } else {
@@ -111,13 +129,18 @@ open class AnimView @JvmOverloads constructor(
             }
 
             override fun onVideoDestroy() {
-                ALog.d(
-                    TAG,
-                    "onVideoDestroy isForcePlayRunner = false, afterStopRunnable = $afterStopRunnable"
-                )
                 animListener?.onVideoDestroy()
-                afterStopRunnable?.run()
-                afterStopRunnable = null
+                // onVideoDestroy 来自 renderThread,统一切回主线程执行停止-重启交接,
+                // 保证 afterStopRunnable 的读取、代际校验与 startPlayForce 串行化。
+                ui {
+                    val runnable = afterStopRunnable
+                    afterStopRunnable = null
+                    ALog.d(
+                        TAG,
+                        "onVideoDestroy isForcePlayRunner = false, afterStopRunnable = $runnable"
+                    )
+                    runnable?.run()
+                }
             }
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
@@ -133,9 +156,13 @@ open class AnimView @JvmOverloads constructor(
 
     // 保证AnimView已经布局完成才加入TextureView
     private var onSizeChangedCalled = false
+    // 已创建 TextureView 使用的 LayoutParams 尺寸(MATCH_PARENT 时为 -1),
+    // 用于判断是否需要重建,不能用测量后的实际宽高比较,否则每次都会重建
+    private var lastTextureLpWidth = 0
+    private var lastTextureLpHeight = 0
     private val prepareTextureViewRunnable = Runnable {
         val lp = scaleTypeUtil.getLayoutParam(this@AnimView)
-        if (innerTextureView == null || innerTextureView?.width != lp.width || innerTextureView?.height != lp.height) {
+        if (innerTextureView == null || lastTextureLpWidth != lp.width || lastTextureLpHeight != lp.height) {
             removeAllViews()
             innerTextureView = InnerTextureView(context).apply {
                 player = this@AnimView.player
@@ -143,6 +170,8 @@ open class AnimView @JvmOverloads constructor(
                 surfaceTextureListener = this@AnimView
                 layoutParams = lp
             }
+            lastTextureLpWidth = lp.width
+            lastTextureLpHeight = lp.height
             addView(innerTextureView, lp)
             ALog.d(
                 TAG, "prepareTextureViewRunnable width = ${lp.width}, height = ${lp.height}"
@@ -167,7 +196,10 @@ open class AnimView @JvmOverloads constructor(
             }
             scaleTypeUtil.getRealSize().let {
                 if (it.first != width || it.second != height) {
-                    textureView.layoutParams = scaleTypeUtil.getLayoutParam(this@AnimView)
+                    val lp = scaleTypeUtil.getLayoutParam(this@AnimView)
+                    textureView.layoutParams = lp
+                    lastTextureLpWidth = lp.width
+                    lastTextureLpHeight = lp.height
                     ALog.d(TAG, "updateVideoSize width = $width height = $height")
                 }
             }
@@ -352,10 +384,14 @@ open class AnimView @JvmOverloads constructor(
 
 
     override fun startPlay(fileContainer: IFileContainer) {
+        startPlayInternal(fileContainer, true)
+    }
+
+    private fun startPlayInternal(fileContainer: IFileContainer, copyContainer: Boolean) {
         if (lastFile != fileContainer) {
             lastFile?.close() //关闭上一次播放的文件流
         }
-        lastFile = if (fileContainer is CustomAssetsFileContainer) {
+        lastFile = if (copyContainer && fileContainer is CustomAssetsFileContainer) {
             fileContainer.copy() //资源文件对象结束播放后不能再次播放bug
         } else {
             fileContainer
@@ -377,43 +413,67 @@ open class AnimView @JvmOverloads constructor(
     }
 
     /**
-     * 强制播放，如果正在播放，会先停止再播放
+     * 强制播放，如果正在播放，会先停止再播放。
+     * 所有状态变更在主线程串行化,并通过代际号作废过期的停止-重启链路,
+     * 避免快速连续切换时旧请求的 afterStopRunnable 抢占/拆掉新请求。
      */
     fun startPlayForce(fileContainer: IFileContainer, onStartRenderOnce: () -> Unit = {}) {
-        if (lastFile != fileContainer) {
-            lastFile?.close() //关闭上一次播放的文件流
-            lastFile = if (fileContainer is CustomAssetsFileContainer) {
+        ui {
+            playGeneration++
+            val generation = playGeneration
+            val target = if (fileContainer is CustomAssetsFileContainer) {
                 fileContainer.copy() //资源文件对象结束播放后不能再次播放bug
             } else {
                 fileContainer
             }
-        }
-        if (player.isRunning()) {
-            // 启动阶段（decoder 还没起来）的早退路径：此时 stopPlay() 设的 isStopReq
-            // 会被即将到来的 decoder.start() 抹掉，afterStopRunnable 永远不会被触发，
-            // 导致上一轮 fileContainer 仍然占着 lastFile、新一轮被静默丢弃。
-            if (player.isInStartupPhase) {
-                ALog.d(TAG, "startPlayForce cancel pending startup and start fresh")
-                player.cancelPendingStart()
-                onStartRenderCallback = onStartRenderOnce
-                startPlay(fileContainer)
-                return
+            if (lastFile != target) {
+                lastFile?.close() //关闭上一次播放的文件流
             }
-            ALog.d(TAG, "startPlayForce called first stopPlay ${this.hashCode()}")
-            afterStopRunnable = Runnable {
-                onStartRenderCallback = onStartRenderOnce
-                if (isAttachedToWindow) {
-                    ALog.d(TAG, "afterStopRunnable running startPlay")
-                    startPlay(fileContainer)
-                } else {
-                    ALog.d(TAG, "afterStopRunnable isAttachedToWindow = false")
+            lastFile = target
+            if (player.isRunning()) {
+                // 启动阶段（decoder 还没起来）的早退路径：此时 stopPlay() 设的 isStopReq
+                // 会被即将到来的 decoder.start() 抹掉，afterStopRunnable 永远不会被触发，
+                // 导致上一轮 fileContainer 仍然占着 lastFile、新一轮被静默丢弃。
+                if (player.isInStartupPhase) {
+                    ALog.d(TAG, "startPlayForce cancel pending startup and start fresh")
+                    // tryCancelStartup 触发的 onVideoComplete 在 playLoop<=0 时可能走
+                    // destroy() 关掉 lastFile,先把新容器摘出来防止被误关。
+                    lastFile = null
+                    if (player.tryCancelStartup()) {
+                        lastFile = target
+                        onStartRenderCallback = onStartRenderOnce
+                        startPlayInternal(target, false)
+                        return@ui
+                    }
+                    // 会话恰好越过启动阶段(decoder 刚启动),落入下方正常停止链路
+                    lastFile = target
                 }
+                ALog.d(TAG, "startPlayForce called first stopPlay ${this.hashCode()}")
+                afterStopRunnable = Runnable {
+                    // 已有更新的请求抢先执行,丢弃本次过期重启
+                    if (generation != playGeneration) {
+                        ALog.d(
+                            TAG,
+                            "afterStopRunnable stale generation=$generation current=$playGeneration, ignore"
+                        )
+                        return@Runnable
+                    }
+                    onStartRenderCallback = onStartRenderOnce
+                    if (isAttachedToWindow) {
+                        ALog.d(TAG, "afterStopRunnable running startPlay")
+                        startPlayInternal(target, false)
+                    } else {
+                        ALog.d(TAG, "afterStopRunnable isAttachedToWindow = false")
+                    }
+                }
+                player.stopPlay()
+            } else {
+                // 空闲:清掉可能残留的过期 afterStopRunnable,直接启动
+                afterStopRunnable = null
+                ALog.d(TAG, "startPlayForce called ${this.hashCode()}")
+                onStartRenderCallback = onStartRenderOnce
+                startPlayInternal(target, false)
             }
-            player.stopPlay()
-        } else {
-            ALog.d(TAG, "startPlayForce called ${this.hashCode()}")
-            onStartRenderCallback = onStartRenderOnce
-            startPlay(fileContainer)
         }
     }
 
@@ -467,8 +527,12 @@ open class AnimView @JvmOverloads constructor(
 
     private fun destroy() {
         player.onSurfaceTextureDestroyed()
-        lastFile?.close()
-        lastFile = null
+        // 停止-重启交接中 lastFile 已指向新会话的容器,旧会话完成回调不得关闭它,
+        // 否则 afterStopRunnable 拉起的新会话 parseConfig 读取失败(0x5 parse config fail)。
+        if (afterStopRunnable == null) {
+            lastFile?.close()
+            lastFile = null
+        }
         clearView()
     }
 
@@ -480,6 +544,9 @@ open class AnimView @JvmOverloads constructor(
      */
     fun release() {
         player.isDetachedFromWindow = true
+        // 作废尚未执行的停止-重启链路,防止释放后旧 runnable 又把播放拉起来
+        playGeneration++
+        afterStopRunnable = null
         destroy()
         uiHandler.removeCallbacksAndMessages(null)
         setFetchResource(null)

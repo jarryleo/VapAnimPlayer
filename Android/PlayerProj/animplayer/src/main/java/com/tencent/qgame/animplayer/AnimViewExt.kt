@@ -12,6 +12,7 @@ import com.tencent.qgame.animplayer.mix.Resource
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.SourceUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -142,10 +143,14 @@ fun AnimView.load(
         }
     })
     if (data == null) {
+        loadJob?.cancel("load null data")
+        loadJob = null
         stopPlay()
         return downloadState(DownloadStatus(state = DownloadState.FAILED))
     }
     if (data is File) {
+        loadJob?.cancel("load file source")
+        loadJob = null
         startPlayForce(data, onStartRenderOnce)
         return downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = data))
     }
@@ -157,11 +162,16 @@ fun AnimView.load(
         //下载文件并缓存
         loadJob?.cancel("load new url")
         loadJob = launch(Dispatchers.IO) {
+            // 当前下载任务的身份标识,过期任务(已被新 load 取消/取代)不得再发起播放,
+            // 否则会抢占用户最新切换的视频。
+            val currentJob = coroutineContext[Job]
             //读取缓存文件
             val cacheKey = VapFileCache.buildCacheKey(data)
             val cacheFile = VapFileCache.buildCacheFile(cacheKey, context).first()
             if (cacheFile.exists()) {
-                startPlayForce(cacheFile, onStartRenderOnce)
+                if (loadJob == currentJob) {
+                    startPlayForce(cacheFile, onStartRenderOnce)
+                }
                 withContext(Dispatchers.Main){
                     downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = cacheFile))
                 }
@@ -172,7 +182,7 @@ fun AnimView.load(
                 withContext(Dispatchers.Main) {
                     downloadState(it)
                 }
-                if (it.isSuccessful() && isAttachedToWindow) {
+                if (it.isSuccessful() && isAttachedToWindow && loadJob == currentJob) {
                     it.file?.let { file ->
                         startPlayForce(file, onStartRenderOnce)
                     }
@@ -183,11 +193,15 @@ fun AnimView.load(
     }
     val isFilePath = SourceUtil.isFilePath(data)
     if (isFilePath) {
+        loadJob?.cancel("load filepath source")
+        loadJob = null
         val file = File(data)
         startPlayForce(file, onStartRenderOnce)
         return downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = file))
     }
     //尝试从asset中加载
+    loadJob?.cancel("load asset source")
+    loadJob = null
     startPlayForce(data, onStartRenderOnce)
     return downloadState(DownloadStatus(state = DownloadState.COMPLETED))
 }

@@ -411,6 +411,8 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                 speedControlUtil.reset()
                 player.pluginManager.onRelease()
                 render?.releaseTexture()
+                // render 生命周期与单次解码会话一致,置空防止下一会话复用已释放纹理的 render
+                render = null
                 surface?.release()
                 surface = null
             } catch (e: Throwable) {

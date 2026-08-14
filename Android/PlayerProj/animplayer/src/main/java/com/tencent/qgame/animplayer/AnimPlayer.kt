@@ -53,10 +53,22 @@ class AnimPlayer(val animView: IAnimView) {
     // 视频模式
     var videoMode: Int = Constant.VIDEO_MODE_SPLIT_HORIZONTAL
     var isDetachedFromWindow = false
+    @Volatile
     var isSurfaceAvailable = false
+    @Volatile
     var startRunnable: Runnable? = null
+    @Volatile
     var isStartRunning = false // 启动时运行状态
     var isMute = false // 是否静音
+
+    /**
+     * 启动会话代际号:每次 startPlay 递增。
+     * renderThread 队列中尚未执行的 parseConfig 执行前校验此值,
+     * 若会话已被 tryCancelStartup / 新的 startPlay 取代则直接放弃,
+     * 避免旧会话在新会话启动后被重新拉起(isStopReq 被抹掉问题)。
+     */
+    @Volatile
+    private var startEpoch = 0
 
     /**
      * 音量,范围 [0.0, 1.0]。
@@ -71,12 +83,15 @@ class AnimPlayer(val animView: IAnimView) {
         }
 
     /**
-     * 是否处于"等 surface"启动阶段：此时 decoder 还没真正起来，
-     * stopPlay() 只是在空的 isStopReq 上盖了个戳，会被即将到来的
-     * decoder.start() 同步抹掉，导致 afterStopRunnable 链路永远不触发。
+     * 是否处于启动阶段(decoder.start() 尚未被调用):
+     * 覆盖 parseConfig 还在 renderThread 队列中、以及已解析配置但在等 surface 两种子状态。
+     * 此阶段 stopPlay() 无法通过 decoder.stop() 生效(decoder 未运行,
+     * isStopReq 会被随后的 decoder.start() 抹掉),必须走 tryCancelStartup()。
+     * 注意:isStartRunning 在 decoder.start() 成功返回后才被清除,
+     * 因此 isRunning() 在启动→解码切换瞬间不会出现 false 空窗。
      */
     val isInStartupPhase: Boolean
-        get() = isStartRunning && startRunnable != null
+        get() = isStartRunning
 
     val configManager = AnimConfigManager(this)
     val pluginManager = AnimPluginManager(this)
@@ -103,6 +118,7 @@ class AnimPlayer(val animView: IAnimView) {
     }
 
     fun startPlay(fileContainer: IFileContainer) {
+        val epoch = ++startEpoch
         isStartRunning = true
         prepareDecoder()
         if (decoder?.prepareThread() == false) {
@@ -116,6 +132,10 @@ class AnimPlayer(val animView: IAnimView) {
         }
         // 在线程中解析配置
         decoder?.renderThread?.handler?.post {
+            if (epoch != startEpoch) {
+                ALog.i(TAG, "startPlay abandoned, stale epoch=$epoch current=$startEpoch")
+                return@post
+            }
             val result =
                 configManager.parseConfig(fileContainer, enableVersion1, videoMode, defaultFps)
             if (result != Constant.OK) {
@@ -128,24 +148,34 @@ class AnimPlayer(val animView: IAnimView) {
             val config = configManager.config
             // 如果是默认配置，因为信息不完整onVideoConfigReady不会被调用
             if (config != null && (config.isDefaultConfig || animListener?.onVideoConfigReady(config) == true)) {
-                innerStartPlay(fileContainer)
+                innerStartPlay(epoch, fileContainer)
             } else {
                 ALog.i(TAG, "onVideoConfigReady return false")
             }
         }
     }
 
-    private fun innerStartPlay(fileContainer: IFileContainer) {
+    private fun innerStartPlay(epoch: Int, fileContainer: IFileContainer) {
         synchronized(AnimPlayer::class.java) {
-            if (isSurfaceAvailable) {
-                isStartRunning = false
+            // 迟到会话防护:parseConfig 越过开头 epoch 检查后,取消可能在它完成前发生。
+            // 进入临界区必须重新校验,防止已取消的会话重新设置 startRunnable /
+            // 拉起 decoder,导致播放错误视频或 render create fail。
+            if (epoch != startEpoch) {
+                ALog.i(TAG, "innerStartPlay abandoned, stale epoch=$epoch current=$startEpoch")
+                return
+            }
+            if (isSurfaceAvailable && animView.getSurfaceTexture() != null) {
                 decoder?.start(fileContainer) //解码视频
+                // decoder.start() 之后再清除启动态,保证 isRunning() 在
+                // 启动→解码切换瞬间不会出现 false 空窗(防止新的 startPlayForce
+                // 误判为空闲走直接启动,与刚启动的会话并发解码)。
+                isStartRunning = false
                 if (!isMute) {
                     audioPlayer?.start(fileContainer) //解码音频
                 }
             } else {
                 startRunnable = Runnable {
-                    innerStartPlay(fileContainer)
+                    innerStartPlay(epoch, fileContainer)
                 }
                 animView.prepareTextureView()
             }
@@ -155,9 +185,8 @@ class AnimPlayer(val animView: IAnimView) {
     fun stopPlay() {
         ALog.i(TAG, "stopPlay isInStartupPhase=$isInStartupPhase decoder.isStopReq=${decoder?.isStopReq}")
         // 启动阶段：decoder 尚未起来，stopPlay 走的 isStopReq 标志会被随后
-        // decoder.start() 同步抹掉。此时直接丢弃挂起的 startRunnable 即可。
-        if (isInStartupPhase) {
-            cancelPendingStart()
+        // decoder.start() 同步抹掉。此时直接作废挂起的启动流程即可。
+        if (tryCancelStartup()) {
             return
         }
         decoder?.stop()
@@ -165,21 +194,30 @@ class AnimPlayer(val animView: IAnimView) {
     }
 
     /**
-     * 丢弃挂起的 startRunnable，让 AnimView 直接走 cancel + 新一次 startPlay 的路径。
-     * 同步触发 decoder.onVideoComplete() 让 AnimView 走 destroy / clearView 清干净上一个文件容器。
+     * 原子地作废一个尚未真正开始的启动会话(parseConfig 排队中 / 等 surface)。
+     * 与 innerStartPlay 共用同一把锁,保证要么在 decoder.start() 之前取消成功,
+     * 要么观察到会话已越过启动阶段返回 false(调用方走正常的 decoder.stop() 链路)。
+     *
+     * @return true 取消成功;false 会话已不在启动阶段,需要走 decoder.stop()
      */
-    fun cancelPendingStart() {
-        if (!isInStartupPhase) {
-            ALog.i(TAG, "cancelPendingStart called but not in startup phase, noop")
-            return
+    fun tryCancelStartup(): Boolean {
+        synchronized(AnimPlayer::class.java) {
+            if (!isStartRunning) {
+                ALog.i(TAG, "tryCancelStartup called but not in startup phase, noop")
+                return false
+            }
+            // 递增代际号:作废 renderThread 队列中尚未执行的 parseConfig,
+            // 防止其在新会话启动后把旧视频重新拉起来。
+            startEpoch++
+            startRunnable = null
+            isStartRunning = false
+            isSurfaceAvailable = false
+            ALog.i(TAG, "tryCancelStartup drop pending start, startEpoch=$startEpoch")
+            // 触发完成链:AnimView.onVideoComplete 会清 lastFile / innerTextureView
+            // audioPlayer 在 startup 阶段没有 start 过,无需 onVideoComplete
+            decoder?.onVideoComplete()
+            return true
         }
-        ALog.i(TAG, "cancelPendingStart drop pending startRunnable")
-        startRunnable = null
-        isStartRunning = false
-        isSurfaceAvailable = false
-        // 触发完成链：AnimView.onVideoComplete 会清 lastFile / innerTextureView
-        // audioPlayer 在 startup 阶段没有 start 过，无需 onVideoComplete
-        decoder?.onVideoComplete()
     }
 
     fun isRunning(): Boolean {
