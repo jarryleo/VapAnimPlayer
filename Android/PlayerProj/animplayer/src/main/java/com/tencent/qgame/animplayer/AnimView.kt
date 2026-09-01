@@ -574,6 +574,15 @@ open class AnimView @JvmOverloads constructor(
 
     /**
      * 解决Assets资源暂停重播时候失败问题
+     *
+     * 线程安全说明:底层 assets 流会被两个线程访问——
+     * anim_render_thread 在 AnimConfigManager.parse() 中 read/skip/closeRandomRead,
+     * 主线程在 startPlayInternal/startPlayForce/destroy 中 close 上一次播放的容器。
+     * 快速切换动画时两者并发,会对 native _FileAsset/IncFsFileMap 形成
+     * use-after-free(SIGSEGV)或 double free(scudo heap corruption SIGABRT)。
+     * 因此所有流操作都在 streamLock 内串行化,close 幂等,
+     * 流关闭后 read 安全返回 EOF(-1),让 parse 优雅失败(默认配置/失败回调),
+     * 由 startEpoch/playGeneration 代际校验保证过期会话不会启动。
      */
     class CustomAssetsFileContainer(
         private val assetManager: AssetManager,
@@ -585,8 +594,9 @@ open class AnimView @JvmOverloads constructor(
             private const val TAG = "${Constant.TAG}.FileContainer"
         }
 
-        private lateinit var assetFd: AssetFileDescriptor
-        private lateinit var assetsInputStream: AssetManager.AssetInputStream
+        private val streamLock = Any()
+        private var assetFd: AssetFileDescriptor? = null
+        private var assetsInputStream: AssetManager.AssetInputStream? = null
 
         init {
             ALog.i(TAG, "AssetsFileContainer init")
@@ -594,11 +604,13 @@ open class AnimView @JvmOverloads constructor(
         }
 
         private fun makeFd() {
-            assetFd = assetManager.openFd(assetsPath)
-            assetsInputStream = assetManager.open(
-                assetsPath,
-                AssetManager.ACCESS_STREAMING
-            ) as AssetManager.AssetInputStream
+            synchronized(streamLock) {
+                assetFd = assetManager.openFd(assetsPath)
+                assetsInputStream = assetManager.open(
+                    assetsPath,
+                    AssetManager.ACCESS_STREAMING
+                ) as AssetManager.AssetInputStream
+            }
         }
 
         override fun setDataSource(extractor: MediaExtractor) {
@@ -613,13 +625,16 @@ open class AnimView @JvmOverloads constructor(
         }
 
         private fun setDataInner(extractor: MediaExtractor) {
-            if (assetFd.declaredLength < 0) {
-                extractor.setDataSource(assetFd.fileDescriptor)
+            // MediaExtractor 会 dup fd,本方法返回后关闭 assetFd 是安全的
+            val fd = synchronized(streamLock) { assetFd }
+                ?: throw java.io.IOException("asset fd already closed: $assetsPath")
+            if (fd.declaredLength < 0) {
+                extractor.setDataSource(fd.fileDescriptor)
             } else {
                 extractor.setDataSource(
-                    assetFd.fileDescriptor,
-                    assetFd.startOffset,
-                    assetFd.declaredLength
+                    fd.fileDescriptor,
+                    fd.startOffset,
+                    fd.declaredLength
                 )
             }
         }
@@ -628,20 +643,53 @@ open class AnimView @JvmOverloads constructor(
         }
 
         override fun read(b: ByteArray, off: Int, len: Int): Int {
-            return assetsInputStream.read(b, off, len)
+            synchronized(streamLock) {
+                val stream = assetsInputStream ?: return -1
+                return try {
+                    stream.read(b, off, len)
+                } catch (e: Exception) {
+                    ALog.e(TAG, "AssetsFileContainer read error $e")
+                    -1
+                }
+            }
         }
 
         override fun skip(pos: Long) {
-            assetsInputStream.skip(pos)
+            synchronized(streamLock) {
+                try {
+                    assetsInputStream?.skip(pos)
+                } catch (e: Exception) {
+                    ALog.e(TAG, "AssetsFileContainer skip error $e")
+                }
+            }
         }
 
         override fun closeRandomRead() {
-            assetsInputStream.close()
+            synchronized(streamLock) {
+                closeStreamLocked()
+            }
         }
 
         override fun close() {
-            assetFd.close()
-            assetsInputStream.close()
+            synchronized(streamLock) {
+                try {
+                    assetFd?.close()
+                } catch (e: Exception) {
+                    ALog.e(TAG, "AssetsFileContainer close assetFd error $e")
+                }
+                assetFd = null
+                closeStreamLocked()
+            }
+        }
+
+        // 调用时必须持有 streamLock;幂等,重复调用不会重复释放 native 资源
+        private fun closeStreamLocked() {
+            try {
+                assetsInputStream?.close()
+            } catch (e: Exception) {
+                ALog.e(TAG, "AssetsFileContainer close stream error $e")
+            }
+            assetsInputStream = null
         }
 
         fun copy(): CustomAssetsFileContainer {
