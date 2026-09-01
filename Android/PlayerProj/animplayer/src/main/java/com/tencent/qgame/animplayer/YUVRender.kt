@@ -78,8 +78,15 @@ class YUVRender (surfaceTexture: SurfaceTexture): IRenderListener {
     )
 
     init {
-        eglUtil.start(surfaceTexture)
-        initRender()
+        try {
+            eglUtil.start(surfaceTexture)
+            initRender()
+        } catch (t: Throwable) {
+            // 初始化中途失败(如 eglCreateContext 失败导致 shader 创建异常)时,
+            // 释放已部分创建的 EGL display/surface/context,避免 native 资源泄漏
+            eglUtil.release()
+            throw t
+        }
     }
 
     override fun initRender() {

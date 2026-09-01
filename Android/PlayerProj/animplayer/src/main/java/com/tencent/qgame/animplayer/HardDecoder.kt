@@ -410,8 +410,10 @@ class HardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFrameA
                 glTexture = null
                 speedControlUtil.reset()
                 player.pluginManager.onRelease()
-                render?.releaseTexture()
-                // render 生命周期与单次解码会话一致,置空防止下一会话复用已释放纹理的 render
+                // render 生命周期与单次解码会话一致,必须走 destroyRender 完整销毁:
+                // 只 releaseTexture 不销毁 EGL context 会导致每播一次泄漏一个 context,
+                // 耗尽驱动上限(如 Mali MAX_NUM_CTX=64)后 eglCreateContext 永久失败
+                render?.destroyRender()
                 render = null
                 surface?.release()
                 surface = null

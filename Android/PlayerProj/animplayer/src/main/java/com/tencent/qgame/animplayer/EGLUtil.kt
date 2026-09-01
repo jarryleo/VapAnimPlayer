@@ -109,6 +109,10 @@ class EGLUtil {
             eglTerminate(eglDisplay)
             surface?.release()
             surface = null
+            // 重置句柄,保证 release 幂等,避免重复销毁野句柄
+            eglDisplay = EGL10.EGL_NO_DISPLAY
+            eglSurface = EGL10.EGL_NO_SURFACE
+            eglContext = EGL10.EGL_NO_CONTEXT
         }
     }
 
