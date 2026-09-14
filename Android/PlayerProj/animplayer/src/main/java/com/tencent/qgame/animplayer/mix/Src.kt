@@ -67,6 +67,18 @@ class Src {
             genDrawSize(value)
         }
 
+    // 文字跑马灯状态, 由BitmapUtil.createTxtBitmap一次性生成
+    // 是否启用跑马灯渲染(文字超宽时)
+    var isMarquee = false
+    // 文字像素宽
+    var textWidth = 0
+    // 滚动速度 px/s(src坐标系)
+    var marqueeSpeedPxPerSec = 0f
+    // 起始停留时长ms(文字头部贴左边缘时停留)
+    var marqueeStartHoldMs = 0L
+    // 结束停留时长ms(文字尾部贴右边缘时停留)
+    var marqueeEndHoldMs = 0L
+
     constructor(json: JSONObject) {
         srcId = json.getString("srcId")
         w = json.getInt("w")

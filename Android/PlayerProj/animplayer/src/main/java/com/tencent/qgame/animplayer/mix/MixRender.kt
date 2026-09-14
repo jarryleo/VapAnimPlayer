@@ -50,7 +50,7 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
 
     }
 
-    fun renderFrame(config:AnimConfig, frame:Frame, src: Src) {
+    fun renderFrame(config:AnimConfig, frame:Frame, src: Src, frameIndex:Int) {
         val videoTextureId = mixAnimPlugin.player.decoder?.render?.getExternalTexture() ?: return
         if (videoTextureId <= 0) return
         val shader = this.shader ?: return
@@ -60,7 +60,11 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
         vertexArray.setVertexAttribPointer(shader.aPositionLocation)
 
         // src 纹理坐标
-        srcArray.setArray(genSrcCoordsArray(srcArray.array, frame.frame.w, frame.frame.h, src.drawWidth, src.drawHeight, src.fitType))
+        srcArray.setArray(if (src.isMarquee) {
+            genMarqueeCoordsArray(srcArray.array, src, config, frameIndex)
+        } else {
+            genSrcCoordsArray(srcArray.array, frame.frame.w, frame.frame.h, src.drawWidth, src.drawHeight, src.fitType)
+        })
         srcArray.setVertexAttribPointer(shader.aTextureSrcCoordinatesLocation)
         // 绑定 src纹理
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -96,6 +100,44 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
 
         GLES20.glDisable(GLES20.GL_BLEND)
 
+    }
+
+    /**
+     * 跑马灯纹理坐标: 可视窗口(src.w宽)在宽纹理上按帧号平移, 无每帧重绘与纹理上传
+     * 纹理布局 [左留白src.w][文字][右留白src.w], 窗口始终落在纹理内, 不依赖GL_REPEAT
+     * 单次循环时间轴: 起始停留(头部贴左边缘) -> 滚动 -> 结束停留(尾部贴右边缘) -> 滚出 -> 回绕
+     * 偏移量由frameIndex推导, 视频暂停则滚动冻结, 动画循环时frameIndex归零自动从头开始
+     */
+    private fun genMarqueeCoordsArray(array: FloatArray, src: Src, config: AnimConfig, frameIndex: Int): FloatArray {
+        val texWidth = src.bitmap?.width?.toFloat() ?: return array
+        val w = src.w.toFloat()
+        val textWidth = src.textWidth.toFloat()
+        val speed = if (src.marqueeSpeedPxPerSec > 0f) src.marqueeSpeedPxPerSec else src.h * TxtMarqueeConfig.AUTO_SPEED_FACTOR
+        val startHold = src.marqueeStartHoldMs / 1000f
+        val endHold = src.marqueeEndHoldMs / 1000f
+        // 头部贴左边缘 -> 尾部贴右边缘 / 尾部贴右边缘 -> 完全滚出
+        val scrollHeadToTail = (textWidth - w) / speed
+        val scrollOut = w / speed
+        val loop = startHold + scrollHeadToTail + endHold + scrollOut
+        val t = frameIndex / config.fps.coerceAtLeast(1).toFloat() % loop
+        val offset = when {
+            t < startHold -> w
+            t - startHold < scrollHeadToTail -> w + (t - startHold) * speed
+            t - startHold - scrollHeadToTail < endHold -> textWidth
+            else -> textWidth + (t - startHold - scrollHeadToTail - endHold) * speed
+        }
+        val u0 = offset / texWidth
+        val u1 = (offset + w) / texWidth
+        // 倒N顺序 与 TexCoordsUtil.create保持一致
+        array[0] = u0
+        array[1] = 0f
+        array[2] = u0
+        array[3] = 1f
+        array[4] = u1
+        array[5] = 0f
+        array[6] = u1
+        array[7] = 1f
+        return array
     }
 
     fun release(textureId: Int) {

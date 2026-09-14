@@ -43,6 +43,7 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
     private var mixRender:MixRender? = null
     private val mixTouch by lazy { MixTouch(this) }
     var autoTxtColorFill = true // 是否启动自动文字填充 默认开启
+    var txtMarqueeConfig = TxtMarqueeConfig() // 文字超宽跑马灯配置
 
     // 同步锁
     private val lock = Object()
@@ -99,7 +100,7 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
         val list = frameAll?.map?.get(frameIndex)?.list ?: return
         list.forEach {frame ->
             val src = srcMap?.map?.get(frame.srcId) ?: return@forEach
-            mixRender?.renderFrame(config, frame, src)
+            mixRender?.renderFrame(config, frame, src, frameIndex)
         }
     }
 
@@ -217,7 +218,7 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
         return try {
             srcMap?.map?.values?.forEach { src ->
                 if (src.srcType == Src.SrcType.TXT) {
-                    src.bitmap = BitmapUtil.createTxtBitmap(src)
+                    src.bitmap = BitmapUtil.createTxtBitmap(src, txtMarqueeConfig)
                 }
             }
             true

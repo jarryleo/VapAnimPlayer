@@ -33,6 +33,7 @@ import com.tencent.qgame.animplayer.inter.IAnimListener
 import com.tencent.qgame.animplayer.inter.IFetchResource
 import com.tencent.qgame.animplayer.inter.OnResourceClickListener
 import com.tencent.qgame.animplayer.mask.MaskConfig
+import com.tencent.qgame.animplayer.mix.TxtMarqueeConfig
 import com.tencent.qgame.animplayer.textureview.InnerTextureView
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.IScaleType
@@ -298,6 +299,14 @@ open class AnimView @JvmOverloads constructor(
      */
     open fun enableAutoTxtColorFill(enable: Boolean) {
         player.pluginManager.getMixAnimPlugin()?.autoTxtColorFill = enable
+    }
+
+    /**
+     * 文字跑马灯配置，文字超出src区域时不再缩小字号改为横向滚动
+     * 播放前设置生效
+     */
+    open fun setTxtMarqueeConfig(config: TxtMarqueeConfig) {
+        player.pluginManager.getMixAnimPlugin()?.txtMarqueeConfig = config
     }
 
     override fun setLoop(playLoop: Int) {

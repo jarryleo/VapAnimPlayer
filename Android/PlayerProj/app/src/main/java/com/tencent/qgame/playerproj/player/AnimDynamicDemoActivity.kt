@@ -87,7 +87,7 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
                 setImage("title", R.drawable.icon)
                 setImage("avatar1", "head.png")
                 setImage("avatar2", "https://picsum.photos/300/300?random=2")
-                setText("nick1", "nick1")
+                setText("nick1", "测试长文本跑马灯效果测试长文本跑马灯效果测试长文本跑马灯效果")
                 setText("nick2", "nick2")
                 setText("ID1", "ID1")
                 setText("ID2", "ID2")
