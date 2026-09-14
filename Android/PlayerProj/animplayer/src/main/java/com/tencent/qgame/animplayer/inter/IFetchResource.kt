@@ -16,6 +16,7 @@
 package com.tencent.qgame.animplayer.inter
 
 import android.graphics.Bitmap
+import com.tencent.qgame.animplayer.anim.AnimImage
 import com.tencent.qgame.animplayer.mix.Resource
 
 /**
@@ -24,6 +25,11 @@ import com.tencent.qgame.animplayer.mix.Resource
 interface IFetchResource {
     // 获取图片 (暂时不支持Bitmap.Config.ALPHA_8 主要是因为一些机型opengl兼容问题)
     fun fetchImage(resource: Resource, result:(Bitmap?) -> Unit)
+
+    // 获取动图(gif) 可选实现, 未实现或不支持时返回null走fetchImage静态图
+    fun fetchAnimImage(resource: Resource, result:(AnimImage?) -> Unit) {
+        result(null)
+    }
 
     // 获取文字
     fun fetchText(resource: Resource, result:(String?) -> Unit)

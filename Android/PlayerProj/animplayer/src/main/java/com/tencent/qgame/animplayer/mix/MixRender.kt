@@ -60,10 +60,10 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
         vertexArray.setVertexAttribPointer(shader.aPositionLocation)
 
         // src 纹理坐标
-        srcArray.setArray(if (src.isMarquee) {
-            genMarqueeCoordsArray(srcArray.array, src, config, frameIndex)
-        } else {
-            genSrcCoordsArray(srcArray.array, frame.frame.w, frame.frame.h, src.drawWidth, src.drawHeight, src.fitType)
+        srcArray.setArray(when {
+            src.animImage != null -> genAnimCoordsArray(srcArray.array, src, config, frameIndex)
+            src.isMarquee -> genMarqueeCoordsArray(srcArray.array, src, config, frameIndex)
+            else -> genSrcCoordsArray(srcArray.array, frame.frame.w, frame.frame.h, src.drawWidth, src.drawHeight, src.fitType)
         })
         srcArray.setVertexAttribPointer(shader.aTextureSrcCoordinatesLocation)
         // 绑定 src纹理
@@ -100,6 +100,24 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
 
         GLES20.glDisable(GLES20.GL_BLEND)
 
+    }
+
+    /**
+     * 动图纹理坐标: 播放前gif所有帧已解码进单张帧图集纹理, 渲染时按视频时钟(frameIndex)选帧
+     * 仅改纹理坐标, 运行时零解码零上传
+     * 偏移量由frameIndex推导, 视频暂停则动图冻结, 动画循环时自动从头播放
+     */
+    private fun genAnimCoordsArray(array: FloatArray, src: Src, config: AnimConfig, frameIndex: Int): FloatArray {
+        val anim = src.animImage ?: return array
+        val timeMs = frameIndex * 1000L / config.fps.coerceAtLeast(1) % anim.durationMs
+        val index = anim.frameIndexAt(timeMs)
+        val rect = PointRect(
+            index % anim.cols * anim.tileWidth,
+            index / anim.cols * anim.tileHeight,
+            anim.tileWidth,
+            anim.tileHeight
+        )
+        return TexCoordsUtil.create(anim.atlas.width, anim.atlas.height, rect, array)
     }
 
     /**

@@ -134,7 +134,12 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
         srcMap?.map?.values?.forEach {src ->
             mixRender?.release(src.srcTextureId)
             when(src.srcType) {
-                Src.SrcType.IMG -> resources.add(Resource(src))
+                Src.SrcType.IMG -> if (src.animImage != null) {
+                    // 动图帧图集由库内部创建并释放
+                    src.animImage?.release()
+                } else {
+                    resources.add(Resource(src))
+                }
                 Src.SrcType.TXT -> src.bitmap?.recycle()
                 else -> {}
             }
@@ -173,13 +178,23 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
         srcMap?.map?.values?.forEach {src ->
             if (src.srcType == Src.SrcType.IMG) {
                 ALog.i(TAG, "fetch image ${src.srcId}")
-                resourceRequest?.fetchImage(Resource(src)) {
-                    src.bitmap = if (it == null) {
-                        ALog.e(TAG, "fetch image ${src.srcId} bitmap return null")
-                        BitmapUtil.createEmptyBitmap()
-                    } else it
-                    ALog.i(TAG, "fetch image ${src.srcId} finish bitmap is ${it?.hashCode()}")
-                    resultCall()
+                // 动图(gif)优先, 未提供时走静态图
+                resourceRequest?.fetchAnimImage(Resource(src)) { anim ->
+                    if (anim != null) {
+                        ALog.i(TAG, "fetch anim image ${src.srcId} frames=${anim.frameCount} duration=${anim.durationMs}ms")
+                        src.animImage = anim
+                        src.bitmap = anim.atlas
+                        resultCall()
+                    } else {
+                        resourceRequest?.fetchImage(Resource(src)) {
+                            src.bitmap = if (it == null) {
+                                ALog.e(TAG, "fetch image ${src.srcId} bitmap return null")
+                                BitmapUtil.createEmptyBitmap()
+                            } else it
+                            ALog.i(TAG, "fetch image ${src.srcId} finish bitmap is ${it?.hashCode()}")
+                            resultCall()
+                        }
+                    }
                 }
             } else if (src.srcType == Src.SrcType.TXT) {
                 ALog.i(TAG, "fetch txt ${src.srcId}")

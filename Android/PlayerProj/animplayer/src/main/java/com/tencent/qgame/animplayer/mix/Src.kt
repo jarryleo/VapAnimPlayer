@@ -18,6 +18,7 @@ package com.tencent.qgame.animplayer.mix
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.tencent.qgame.animplayer.Constant
+import com.tencent.qgame.animplayer.anim.AnimImage
 import com.tencent.qgame.animplayer.util.ALog
 import org.json.JSONObject
 
@@ -78,6 +79,9 @@ class Src {
     var marqueeStartHoldMs = 0L
     // 结束停留时长ms(文字尾部贴右边缘时停留)
     var marqueeEndHoldMs = 0L
+
+    // 动图资源(gif帧图集) 非空时按视频时钟逐帧展示, bitmap即为帧图集
+    var animImage: AnimImage? = null
 
     constructor(json: JSONObject) {
         srcId = json.getString("srcId")

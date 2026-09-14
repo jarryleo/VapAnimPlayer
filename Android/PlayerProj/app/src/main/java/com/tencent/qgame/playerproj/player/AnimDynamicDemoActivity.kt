@@ -85,7 +85,8 @@ class AnimDynamicDemoActivity : AppCompatActivity(), IAnimListener {
             data = url,
             dynamic = {
                 setImage("title", R.drawable.icon)
-                setImage("avatar1", "head.png")
+                //setImage("avatar1", "head.png")
+                setImage("avatar1", "https://res.dawalive.com/FtRBVni0G0T7zcSWmShW-fnHwktQ?imageslim")
                 setImage("avatar2", "https://picsum.photos/300/300?random=2")
                 setText("nick1", "测试长文本跑马灯效果测试长文本跑马灯效果测试长文本跑马灯效果")
                 setText("nick2", "nick2")
