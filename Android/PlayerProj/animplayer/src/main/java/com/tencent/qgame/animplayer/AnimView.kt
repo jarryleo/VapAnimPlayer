@@ -604,17 +604,15 @@ open class AnimView @JvmOverloads constructor(
         }
 
         private val streamLock = Any()
-        private var assetFd: AssetFileDescriptor? = null
         private var assetsInputStream: AssetManager.AssetInputStream? = null
 
         init {
             ALog.i(TAG, "AssetsFileContainer init")
-            makeFd()
+            makeStream()
         }
 
-        private fun makeFd() {
+        private fun makeStream() {
             synchronized(streamLock) {
-                assetFd = assetManager.openFd(assetsPath)
                 assetsInputStream = assetManager.open(
                     assetsPath,
                     AssetManager.ACCESS_STREAMING
@@ -627,24 +625,36 @@ open class AnimView @JvmOverloads constructor(
                 setDataInner(extractor) //修复可能出现IOException: Failed to instantiate extractor.
             } catch (e: Exception) {
                 ALog.e(TAG, "AssetsFileContainer setDataSource error $e")
-                close()
-                makeFd()
                 setDataInner(extractor)
             }
         }
 
         private fun setDataInner(extractor: MediaExtractor) {
-            // MediaExtractor 会 dup fd,本方法返回后关闭 assetFd 是安全的
-            val fd = synchronized(streamLock) { assetFd }
-                ?: throw java.io.IOException("asset fd already closed: $assetsPath")
-            if (fd.declaredLength < 0) {
-                extractor.setDataSource(fd.fileDescriptor)
-            } else {
-                extractor.setDataSource(
-                    fd.fileDescriptor,
-                    fd.startOffset,
-                    fd.declaredLength
-                )
+            // 每个extractor独立打开fd并即刻关闭:一次播放中音视频两个MediaExtractor
+            // 共享同一fd时,部分机型会因文件偏移竞争读到错位数据
+            // (表现为No video/audio track found或readSampleData立刻EOS)。
+            // MediaExtractor 内部会 dup fd,本方法返回后关闭 fd 是安全的
+            val fd = try {
+                assetManager.openFd(assetsPath)
+            } catch (e: Exception) {
+                throw java.io.IOException("openFd fail: $assetsPath", e)
+            }
+            try {
+                if (fd.declaredLength < 0) {
+                    extractor.setDataSource(fd.fileDescriptor)
+                } else {
+                    extractor.setDataSource(
+                        fd.fileDescriptor,
+                        fd.startOffset,
+                        fd.declaredLength
+                    )
+                }
+            } finally {
+                try {
+                    fd.close()
+                } catch (e: Exception) {
+                    ALog.e(TAG, "AssetsFileContainer close fd error $e")
+                }
             }
         }
 
@@ -681,12 +691,6 @@ open class AnimView @JvmOverloads constructor(
 
         override fun close() {
             synchronized(streamLock) {
-                try {
-                    assetFd?.close()
-                } catch (e: Exception) {
-                    ALog.e(TAG, "AssetsFileContainer close assetFd error $e")
-                }
-                assetFd = null
                 closeStreamLocked()
             }
         }
