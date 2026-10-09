@@ -28,6 +28,7 @@ import com.tencent.qgame.animplayer.inter.OnResourceClickListener
 import com.tencent.qgame.animplayer.plugin.IAnimPlugin
 import com.tencent.qgame.animplayer.util.ALog
 import com.tencent.qgame.animplayer.util.BitmapUtil
+import kotlin.math.ceil
 
 class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
 
@@ -162,6 +163,24 @@ class MixAnimPlugin(val player: AnimPlayer): IAnimPlugin {
     private fun parseFrame(config: AnimConfig) {
         config.jsonConfig?.apply {
             frameAll = FrameAll(this)
+        }
+        // 计算每个src的实际展示窗口宽(所有帧中最大的quad宽, 按src.h/frame.h换算到src坐标系),
+        // 跑马灯判定与渲染窗口均用它, 避免quad与src宽高比不一致时文字被横向拉伸
+        // 上限钳制MAX_TEX_WIDTH: 纹理宽度以它为界, 防止src.h远大于quad.h时位图超GPU纹理上限或占用过大
+        val frameSets = frameAll?.map ?: return
+        srcMap?.map?.values?.forEach { src ->
+            var maxW = 0
+            for (i in 0 until frameSets.size()) {
+                frameSets.valueAt(i).list.forEach { frame ->
+                    if (frame.srcId == src.srcId && frame.frame.h > 0) {
+                        val windowW = ceil(frame.frame.w * src.h.toFloat() / frame.frame.h).toInt()
+                        if (windowW > maxW) {
+                            maxW = windowW
+                        }
+                    }
+                }
+            }
+            src.displayWidth = maxW.coerceAtMost(TxtMarqueeConfig.MAX_TEX_WIDTH)
         }
     }
 

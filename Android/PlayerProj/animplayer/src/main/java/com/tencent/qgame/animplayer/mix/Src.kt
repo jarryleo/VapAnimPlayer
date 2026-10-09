@@ -71,6 +71,9 @@ class Src {
     // 文字跑马灯状态, 由BitmapUtil.createTxtBitmap一次性生成
     // 是否启用跑马灯渲染(文字超宽时)
     var isMarquee = false
+    // 实际展示窗口宽(该src所有帧中最大的quad宽, 按src.h/frame.h换算到src坐标系), 由MixAnimPlugin解析帧数据后填充, 0表示未解析
+    // 跑马灯判定阈值与纹理留白: 文字宽度超过max(src.w, displayWidth)才启用; 渲染时窗口宽度也按帧quad宽高比换算, 保证文字不变形
+    var displayWidth = 0
     // 文字像素宽
     var textWidth = 0
     // 滚动速度 px/s(src坐标系)

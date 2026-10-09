@@ -20,7 +20,11 @@ import android.opengl.GLES20
 import com.tencent.qgame.animplayer.AnimConfig
 import com.tencent.qgame.animplayer.Constant
 import com.tencent.qgame.animplayer.PointRect
-import com.tencent.qgame.animplayer.util.*
+import com.tencent.qgame.animplayer.util.ALog
+import com.tencent.qgame.animplayer.util.GlFloatArray
+import com.tencent.qgame.animplayer.util.TexCoordsUtil
+import com.tencent.qgame.animplayer.util.TextureLoadUtil
+import com.tencent.qgame.animplayer.util.VertexUtil
 
 /**
  * vapx 渲染
@@ -62,7 +66,7 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
         // src 纹理坐标
         srcArray.setArray(when {
             src.animImage != null -> genAnimCoordsArray(srcArray.array, src, config, frameIndex)
-            src.isMarquee -> genMarqueeCoordsArray(srcArray.array, src, config, frameIndex)
+            src.isMarquee -> genMarqueeCoordsArray(srcArray.array, src, frame, config, frameIndex)
             else -> genSrcCoordsArray(srcArray.array, frame.frame.w, frame.frame.h, src.drawWidth, src.drawHeight, src.fitType)
         })
         srcArray.setVertexAttribPointer(shader.aTextureSrcCoordinatesLocation)
@@ -121,31 +125,39 @@ class MixRender(private val mixAnimPlugin: MixAnimPlugin) {
     }
 
     /**
-     * 跑马灯纹理坐标: 可视窗口(src.w宽)在宽纹理上按帧号平移, 无每帧重绘与纹理上传
-     * 纹理布局 [左留白src.w][文字][右留白src.w], 窗口始终落在纹理内, 不依赖GL_REPEAT
+     * 跑马灯纹理坐标: 可视窗口在宽纹理上按帧号平移, 无每帧重绘与纹理上传
+     * 纹理布局 [左留白margin][文字][右留白margin], 窗口始终落在纹理内, 不依赖GL_REPEAT
+     * 窗口宽度按当前帧quad宽高比换算到纹理像素(frame.w x src.h/frame.h):
+     * 纹理像素与显示像素横纵等比, 文字不随quad与src宽高比差异横向拉伸
      * 单次循环时间轴: 起始停留(头部贴左边缘) -> 滚动 -> 结束停留(尾部贴右边缘) -> 滚出 -> 回绕
      * 偏移量由frameIndex推导, 视频暂停则滚动冻结, 动画循环时frameIndex归零自动从头开始
      */
-    private fun genMarqueeCoordsArray(array: FloatArray, src: Src, config: AnimConfig, frameIndex: Int): FloatArray {
+    private fun genMarqueeCoordsArray(array: FloatArray, src: Src, frame: Frame, config: AnimConfig, frameIndex: Int): FloatArray {
         val texWidth = src.bitmap?.width?.toFloat() ?: return array
-        val w = src.w.toFloat()
         val textWidth = src.textWidth.toFloat()
+        if (texWidth <= 0f || textWidth <= 0f) return array
+        val margin = (texWidth - textWidth) / 2f
+        if (margin <= 0f) return array
+        // 当前帧窗口宽: quad宽 x (纹理高/quad高), 换算后纹理像素与显示像素横纵等比; 浮点运算避免Int乘法溢出
+        val windowW = (if (frame.frame.h > 0) frame.frame.w * (src.h / frame.frame.h.toFloat()) else src.w.toFloat())
+            .coerceIn(1f, margin)
         val speed = if (src.marqueeSpeedPxPerSec > 0f) src.marqueeSpeedPxPerSec else src.h * TxtMarqueeConfig.AUTO_SPEED_FACTOR
         val startHold = src.marqueeStartHoldMs / 1000f
         val endHold = src.marqueeEndHoldMs / 1000f
         // 头部贴左边缘 -> 尾部贴右边缘 / 尾部贴右边缘 -> 完全滚出
-        val scrollHeadToTail = (textWidth - w) / speed
-        val scrollOut = w / speed
+        val scrollHeadToTail = ((textWidth - windowW) / speed).coerceAtLeast(0f)
+        val scrollOut = windowW / speed
         val loop = startHold + scrollHeadToTail + endHold + scrollOut
+        if (loop <= 0f) return array
         val t = frameIndex / config.fps.coerceAtLeast(1).toFloat() % loop
         val offset = when {
-            t < startHold -> w
-            t - startHold < scrollHeadToTail -> w + (t - startHold) * speed
-            t - startHold - scrollHeadToTail < endHold -> textWidth
-            else -> textWidth + (t - startHold - scrollHeadToTail - endHold) * speed
+            t < startHold -> margin
+            t - startHold < scrollHeadToTail -> margin + (t - startHold) * speed
+            t - startHold - scrollHeadToTail < endHold -> margin + textWidth - windowW
+            else -> margin + textWidth - windowW + (t - startHold - scrollHeadToTail - endHold) * speed
         }
         val u0 = offset / texWidth
-        val u1 = (offset + w) / texWidth
+        val u1 = (offset + windowW) / texWidth
         // 倒N顺序 与 TexCoordsUtil.create保持一致
         array[0] = u0
         array[1] = 0f
