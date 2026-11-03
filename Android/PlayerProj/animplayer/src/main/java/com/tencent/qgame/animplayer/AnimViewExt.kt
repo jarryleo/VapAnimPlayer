@@ -22,7 +22,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import kotlin.time.Duration.Companion.milliseconds
+
+/**
+ * 动态图url下载的等待上限:本方法在渲染线程上被同步调用(MixAnimPlugin.fetchResourceSync
+ * 会lock.wait等待全部资源)，弱网下不设上限会把整条播放管线卡死，超时按资源缺失处理
+ */
+private const val DYNAMIC_IMAGE_DOWNLOAD_TIMEOUT_MS = 30_000L
 
 class DynamicResource {
     internal val imageMap = mutableMapOf<String, Any>()
@@ -153,7 +161,7 @@ fun AnimView.load(
                 if (loadJob == currentJob) {
                     startPlayForce(cacheFile, onStartRenderOnce)
                 }
-                withContext(Dispatchers.Main){
+                withContext(Dispatchers.Main) {
                     downloadState(DownloadStatus(state = DownloadState.COMPLETED, file = cacheFile))
                 }
                 return@launch
@@ -210,12 +218,16 @@ private fun resolveDynamicImage(
         is String -> when {
             SourceUtil.isUrl(image) -> { //下载网络图片
                 runBlocking {
-                    downloadImageFile(context, image)?.let { decodeImageFile(it, reqWidth, reqHeight) }
+                    withTimeoutOrNull(DYNAMIC_IMAGE_DOWNLOAD_TIMEOUT_MS.milliseconds) {
+                        downloadImageFile(context, image)
+                    }?.let { decodeImageFile(it, reqWidth, reqHeight) }
                 }
             }
+
             SourceUtil.isFilePath(image) -> decodeImageFile(File(image), reqWidth, reqHeight)
             else -> decodeImageAsset(context, image, reqWidth, reqHeight) //尝试Assert
         }
+
         else -> null
     }
     cache[tag] = resolved
@@ -262,9 +274,11 @@ private fun decodeImageRes(context: Context, resId: Int, reqWidth: Int, reqHeigh
  */
 private suspend fun downloadImageFile(context: Context, url: String): File? {
     return runCatching {
-        val cacheFile = VapFileCache.buildCacheBitmapFile(VapFileCache.buildCacheKey(url), context).first()
+        val cacheFile =
+            VapFileCache.buildCacheBitmapFile(VapFileCache.buildCacheKey(url), context).first()
         if (!cacheFile.exists()) {
-            val status = VapManager.downLoad(url, cacheFile).first { it.isSuccessful() || it.isFailed() }
+            val status =
+                VapManager.downLoad(url, cacheFile).first { it.isSuccessful() || it.isFailed() }
             if (!status.isSuccessful()) {
                 ALog.e("AnimView", "download image fail url=$url")
                 return null

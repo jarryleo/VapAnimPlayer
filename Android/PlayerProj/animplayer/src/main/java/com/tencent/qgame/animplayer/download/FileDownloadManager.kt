@@ -17,6 +17,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * @Author     :Leo
@@ -49,7 +50,13 @@ class DownloadException(message: String, cause: Throwable? = null) : Exception(m
 
 @Suppress("Unused")
 class FileDownloadManager(
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder().build(),
+    //OkHttp默认callTimeout=0(无总时长上限)，慢速滴流连接可无限占用下载槽位并阻塞渲染线程的同步等待，这里设总时长兜底(连接/读/写超时保持默认10s)
+    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
+        .build(),
     private val maxConcurrentDownloads: Int = 3
 ) {
     private var scope: CoroutineScope? = null
@@ -108,8 +115,11 @@ class FileDownloadManager(
         statusFlow: MutableStateFlow<DownloadStatus>
     ) {
         var call: Call? = null
-        val shadow = destination.shadow()
+        var shadow: File? = null
         try {
+            // shadow()必须在try内: 下载协程作用域没有CoroutineExceptionHandler,
+            // 这里抛出的异常会逃逸出协程直接崩溃,失败必须转为FAILED状态由调用方降级处理
+            shadow = destination.shadow()
             statusFlow.value = statusFlow.value.copy(state = DownloadState.DOWNLOADING)
 
             // 准备请求
@@ -203,7 +213,7 @@ class FileDownloadManager(
 
 
         } catch (e: Exception) {
-            shadow.delete()
+            shadow?.delete()
             if (e is CancellationException) {
                 statusFlow.value = statusFlow.value.copy(state = DownloadState.CANCELLED)
             } else {
@@ -274,7 +284,10 @@ class FileDownloadManager(
     }
 
     fun File.shadow(): File {
-        val shadowPath = "$canonicalPath.download"
+        // 不用canonicalPath: 其底层realpath()在部分机型(如Infinix X663/Android 12)上对未落盘的
+        // 文件返回EINVAL,直接抛IOException("Invalid argument")导致崩溃(Crashlytics issue
+        // 8fb677edde08d3520ff94da35f468a37)。临时文件只需与目标文件同目录同名,absolutePath即可
+        val shadowPath = "$absolutePath.download"
         return File(shadowPath)
     }
 }
