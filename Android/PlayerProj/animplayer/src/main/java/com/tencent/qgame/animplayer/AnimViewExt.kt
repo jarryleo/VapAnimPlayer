@@ -111,6 +111,7 @@ fun AnimView.load(
             result: (Bitmap?) -> Unit
         ) {
             result.invoke(dynamicImage(resource) as? Bitmap)
+            ALog.d("setFetchResource: fetchImage ->", "resource.tag = ${resource.tag}")
         }
 
         override fun fetchAnimImage(
@@ -118,6 +119,7 @@ fun AnimView.load(
             result: (AnimImage?) -> Unit
         ) {
             result.invoke(dynamicImage(resource) as? AnimImage)
+            ALog.d("setFetchResource: fetchAnimImage ->", "resource.tag = ${resource.tag}")
         }
 
         override fun fetchText(
@@ -125,6 +127,7 @@ fun AnimView.load(
             result: (String?) -> Unit
         ) {
             result.invoke(dynamicText(resource))
+            ALog.d("setFetchResource: fetchText ->", "resource.tag = ${resource.tag}")
         }
 
         override fun releaseResource(resources: List<Resource>) {
