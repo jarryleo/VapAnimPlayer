@@ -17,7 +17,6 @@ package com.tencent.qgame.animplayer
  */
 
 import android.content.Context
-import android.content.res.AssetFileDescriptor
 import android.content.res.AssetManager
 import android.graphics.SurfaceTexture
 import android.media.MediaExtractor
@@ -62,12 +61,15 @@ open class AnimView @JvmOverloads constructor(
     private var innerTextureView: InnerTextureView? = null
     private var lastFile: IFileContainer? = null
     private val scaleTypeUtil = ScaleTypeUtil()
+
     @Volatile
     private var afterStopRunnable: Runnable? = null
     private var onStartRenderCallback: (() -> Unit)? = null
+
     // 播放请求代际号:每次 startPlayForce 递增,用于作废停止-重启链路中
     // 过期未执行的 afterStopRunnable,避免其抢占新请求。读写均在主线程。
     private var playGeneration = 0
+
     @Volatile
     internal var loadJob: Job? = null
 
@@ -157,6 +159,7 @@ open class AnimView @JvmOverloads constructor(
 
     // 保证AnimView已经布局完成才加入TextureView
     private var onSizeChangedCalled = false
+
     // 已创建 TextureView 使用的 LayoutParams 尺寸(MATCH_PARENT 时为 -1),
     // 用于判断是否需要重建,不能用测量后的实际宽高比较,否则每次都会重建
     private var lastTextureLpWidth = 0
@@ -613,10 +616,18 @@ open class AnimView @JvmOverloads constructor(
 
         private fun makeStream() {
             synchronized(streamLock) {
-                assetsInputStream = assetManager.open(
-                    assetsPath,
-                    AssetManager.ACCESS_STREAMING
-                ) as AssetManager.AssetInputStream
+                val stream = try {
+                    assetManager.open(
+                        assetsPath,
+                        AssetManager.ACCESS_STREAMING
+                    )
+                } catch (e: Exception) {
+                    ALog.e(TAG, "$assetsPath not found! $e")
+                    null
+                }
+                if (stream != null) {
+                    assetsInputStream = stream as? AssetManager.AssetInputStream
+                }
             }
         }
 
